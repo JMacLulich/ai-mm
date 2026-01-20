@@ -70,8 +70,7 @@ claude-mm-tool/
 │   ├── usage.py            # Cost logging & analytics
 │   └── providers/          # Model provider implementations
 ├── bin/
-│   ├── ai                  # Main CLI executable
-│   └── ai_new              # Modular CLI (future)
+│   └── ai                  # Main CLI (modular architecture)
 ├── tests/
 │   ├── unit/               # Unit tests
 │   └── integration/        # Integration tests

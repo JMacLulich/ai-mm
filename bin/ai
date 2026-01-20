@@ -2,14 +2,19 @@
 """
 ai - Multi-model AI tooling for planning, code review, and stabilization
 
+Thin CLI wrapper around the api.py module.
+
 Usage:
-    ai plan "prompt" [--model MODEL]
-    ai review [--model MODEL] [--focus AREA]
+    ai plan "prompt" [--model MODEL] [--no-cache]
+    ai review [--model MODEL] [--focus AREA] [--no-cache]
     ai stabilize "goal" [--rounds N] [--mode MODE]
+    ai cache stats|clear [--older-than HOURS]
+    ai usage [--today|--week|--month] [--export FILE]
 
 Examples:
     ai plan "Build user authentication"
     ai review --model gemini --focus security
+    ai review --model mm  # Parallel GPT + Gemini
     ai stabilize "Add caching layer" --rounds 2 --mode infra
 """
 
@@ -17,40 +22,13 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from textwrap import dedent
 
 # Setup paths
 SCRIPT_DIR = Path(__file__).parent.resolve()
 ROOT = SCRIPT_DIR.parent
-sys.path.insert(0, str(SCRIPT_DIR.parent / "src"))
+sys.path.insert(0, str(ROOT / "src"))
 
-# Configuration (lazy-loaded in main())
-CONFIG = None
-
-from claude_mm.cache import (  # noqa: E402
-    cache_response,
-    clear_cache,
-    get_cache_stats,
-    get_cached_response,
-)
-from claude_mm.config import load_config  # noqa: E402
-from claude_mm.costs import (  # noqa: E402
-    estimate_cost,
-    estimate_cost_from_text,
-    estimate_tokens,
-    format_cost_warning,
-    should_warn_about_cost,
-)
-from claude_mm.retry import retry_with_backoff  # noqa: E402
-from claude_mm.usage import (  # noqa: E402
-    get_usage_stats,
-    log_api_call,
-)
-
-# ============================================================================
-# Environment Loading
-# ============================================================================
-
+# Load environment
 def load_env_file(env_path):
     """Load environment variables from a file."""
     if not env_path.exists():
@@ -66,979 +44,265 @@ def load_env_file(env_path):
                 if value:
                     os.environ[key] = value
 
-# Load from repo .env first (highest priority, for development)
+# Load from repo .env first (highest priority)
 load_env_file(ROOT / ".env")
-# Load from user config (standard location)
-load_env_file(Path.home() / ".config" / "ai" / "env")
-
-
-# ============================================================================
-# Model API Clients
-# ============================================================================
-
-@retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10)
-def call_openai(prompt: str, model: str = "gpt-5.2", system_prompt: str = None, operation: str = "unknown") -> tuple:
-    """Call OpenAI API with automatic retry on transient failures.
-
-    Returns:
-        Tuple of (response_text, usage_dict) where usage_dict contains 'input_tokens' and 'output_tokens'
-    """
-    try:
-        from openai import OpenAI
-    except ImportError:
-        print("Error: openai package not installed", file=sys.stderr)
-        print("Run: pip3 install openai", file=sys.stderr)
-        sys.exit(1)
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("Error: OPENAI_API_KEY not set", file=sys.stderr)
-        print("Edit: .env or ~/.config/ai/env", file=sys.stderr)
-        sys.exit(1)
-
-    client = OpenAI(api_key=api_key)
-
-    if not system_prompt:
-        system_prompt = "You are a helpful AI assistant."
-
-    try:
-        # GPT-5.2 models don't support temperature parameter
-        if model.startswith("gpt-5"):
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-            )
-        else:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-            )
-
-        # Extract usage info
-        usage = None
-        if response.usage:
-            usage = {
-                'input_tokens': response.usage.prompt_tokens,
-                'output_tokens': response.usage.completion_tokens,
-            }
-
-        return response.choices[0].message.content, usage
-    except Exception as e:
-        print(f"Error calling OpenAI API: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-@retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10)
-def call_gemini(prompt: str, model: str = "gemini-3-flash-preview", system_prompt: str = None, operation: str = "unknown") -> tuple:
-    """Call Google Gemini API with automatic retry on transient failures.
-
-    Returns:
-        Tuple of (response_text, usage_dict) where usage_dict contains 'input_tokens' and 'output_tokens'
-    """
-    try:
-        from google import genai
-    except ImportError:
-        print("Error: google-genai package not installed", file=sys.stderr)
-        print("Run: pip3 install google-genai", file=sys.stderr)
-        sys.exit(1)
-
-    api_key = os.getenv("GOOGLE_AI_API_KEY")
-    if not api_key:
-        print("Error: GOOGLE_AI_API_KEY not set", file=sys.stderr)
-        print("Edit: .env or ~/.config/ai/env", file=sys.stderr)
-        sys.exit(1)
-
-    client = genai.Client(api_key=api_key)
-
-    full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=full_prompt
-        )
-
-        # Extract usage info
-        usage = None
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            usage = {
-                'input_tokens': response.usage_metadata.prompt_token_count,
-                'output_tokens': response.usage_metadata.candidates_token_count,
-            }
-
-        return response.text, usage
-    except Exception as e:
-        print(f"Error calling Gemini API: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-@retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10)
-def call_anthropic(prompt: str, model: str = "claude-sonnet-4-5-20250929", system_prompt: str = None, operation: str = "unknown") -> tuple:
-    """Call Anthropic Claude API with automatic retry on transient failures.
-
-    Returns:
-        Tuple of (response_text, usage_dict) where usage_dict contains 'input_tokens' and 'output_tokens'
-    """
-    try:
-        from anthropic import Anthropic
-    except ImportError:
-        print("Error: anthropic package not installed", file=sys.stderr)
-        print("Run: pip3 install anthropic", file=sys.stderr)
-        sys.exit(1)
-
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        print("Error: ANTHROPIC_API_KEY not set", file=sys.stderr)
-        print("Edit: .env or ~/.config/ai/env", file=sys.stderr)
-        sys.exit(1)
-
-    client = Anthropic(api_key=api_key)
-
-    if not system_prompt:
-        system_prompt = "You are a helpful AI assistant."
-
-    try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-
-        # Extract usage info
-        usage = None
-        if hasattr(response, 'usage') and response.usage:
-            usage = {
-                'input_tokens': response.usage.input_tokens,
-                'output_tokens': response.usage.output_tokens,
-            }
-
-        return response.content[0].text, usage
-    except Exception as e:
-        print(f"Error calling Anthropic API: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-def route_to_model(model: str, prompt: str, system_prompt: str = None, use_cache: bool = True, operation: str = "unknown") -> str:
-    """Route to the appropriate model API.
-
-    Normalizes user-facing model names to API model names before calling APIs.
-    cost_tracker.py maintains its own aliases for standalone cost estimation.
-
-    Args:
-        model: Model name
-        prompt: User prompt
-        system_prompt: System prompt (optional)
-        use_cache: Whether to use cached responses (default: True)
-        operation: Operation type for logging (plan, review, stabilize)
-    """
-    model = model.lower()
-
-    # Check cache first (before normalizing model name for consistency)
-    if use_cache:
-        cached = get_cached_response(model, prompt, system_prompt, ttl_hours=CONFIG['cache_ttl_hours'])
-        if cached:
-            print("💾 Using cached response", file=sys.stderr)
-            return cached
-
-    # Helper function to handle response, logging, and caching
-    def _finalize_response(api_model: str, cache_model: str, response_text: str, usage: dict, system_prompt: str):
-        """Log cost and cache response if applicable. Returns (response_text, actual_cost)."""
-        actual_cost = None
-        # Log cost if usage info available
-        if usage:
-            actual_cost = estimate_cost(api_model, usage['input_tokens'], usage['output_tokens'])
-            log_api_call(api_model, usage['input_tokens'], usage['output_tokens'], actual_cost, operation=operation)
-
-        # Cache response
-        if use_cache:
-            cache_response(cache_model, prompt, response_text, system_prompt)
-
-        return response_text, actual_cost
-
-    # OpenAI GPT-5.2 models
-    if model in ["gpt-5.2-chat-latest", "gpt-5.2-instant", "gpt-5.2", "gpt-5.2-pro", "gpt-5", "gpt"]:
-        # Map friendly names to API identifiers
-        original_model = model
-        if model == "gpt-5.2-instant":
-            model = "gpt-5.2-chat-latest"
-        elif model == "gpt-5" or model == "gpt":
-            model = "gpt-5.2-chat-latest"
-        response_text, usage = call_openai(prompt, model, system_prompt, operation=operation)
-        result, actual_cost = _finalize_response(model, original_model, response_text, usage, system_prompt)
-        return (result, actual_cost) if actual_cost else result
-
-    # Gemini models (gemini-3-flash-preview only)
-    elif model in ["gemini", "gemini-3-flash-preview"]:
-        original_model = model
-        if model == "gemini":
-            model = "gemini-3-flash-preview"
-        response_text, usage = call_gemini(prompt, model, system_prompt, operation=operation)
-        result, actual_cost = _finalize_response(model, original_model, response_text, usage, system_prompt)
-        return (result, actual_cost) if actual_cost else result
-
-    # Explicitly catch deprecated Gemini models
-    elif model in ["gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-3-pro-preview"]:
-        print(f"Error: Model '{model}' is not supported", file=sys.stderr)
-        print("Only gemini-3-flash-preview is supported. Use 'gemini' or 'gemini-3-flash-preview'", file=sys.stderr)
-        sys.exit(1)
-
-    # Claude models
-    elif model in ["claude", "claude-sonnet-4-5-20250929"]:
-        original_model = model
-        if model == "claude":
-            model = "claude-sonnet-4-5-20250929"
-        response_text, usage = call_anthropic(prompt, model, system_prompt, operation=operation)
-        result, actual_cost = _finalize_response(model, original_model, response_text, usage, system_prompt)
-        return (result, actual_cost) if actual_cost else result
-
-    else:
-        # Suggest similar model names
-        from difflib import get_close_matches
-        all_models = [
-            "gpt", "gpt-5", "gpt-5.2", "gpt-5.2-instant", "gpt-5.2-chat-latest", "gpt-5.2-pro",
-            "gemini", "gemini-3-flash-preview",
-            "claude", "claude-sonnet-4-5-20250929"
-        ]
-        suggestions = get_close_matches(model, all_models, n=3, cutoff=0.4)
-
-        print(f"Error: Unknown model '{model}'", file=sys.stderr)
-        if suggestions:
-            print(f"Did you mean: {', '.join(suggestions)}?", file=sys.stderr)
-        print("\nSupported models:", file=sys.stderr)
-        print("  - gpt, gpt-5, gpt-5.2, gpt-5.2-instant, gpt-5.2-pro", file=sys.stderr)
-        print("  - gemini, gemini-3-flash-preview", file=sys.stderr)
-        print("  - claude, claude-sonnet-4-5-20250929", file=sys.stderr)
-        sys.exit(1)
-
-
-# ============================================================================
-# Subcommand: plan
-# ============================================================================
-
-def cmd_plan(args):
-    """Generate implementation plans using AI models."""
-    # Get prompt from args or stdin
-    if args.prompt:
-        prompt = " ".join(args.prompt)
-    elif not sys.stdin.isatty():
-        prompt = sys.stdin.read().strip()
-    else:
-        print("Error: No prompt provided", file=sys.stderr)
-        print("Usage: ai plan \"prompt\" [--model MODEL]", file=sys.stderr)
-        return 1
-
-    if not prompt:
-        print("Error: Empty prompt", file=sys.stderr)
-        return 1
-
-    system_prompt = """You are a software architect creating implementation plans.
-
-Your task is to generate a clear, actionable implementation plan. Focus on:
-- Breaking down the work into logical steps
-- Identifying key architectural decisions
-- Highlighting potential risks or challenges
-- Suggesting specific technologies or patterns
-- Keeping the plan concise and actionable
-
-Do not include time estimates. Focus on what needs to be done, not when.
-Output in markdown format."""
-
-    print(f"🤔 Planning with {args.model}...\n", file=sys.stderr)
-
-    use_cache = not getattr(args, 'no_cache', False)
-    result = route_to_model(args.model, prompt, system_prompt, use_cache=use_cache, operation="plan")
-
-    # Handle tuple return (result, actual_cost) or just result if cached
-    if isinstance(result, tuple):
-        response_text, actual_cost = result
-        print(response_text)
-        if actual_cost:
-            print(f"\n💰 Actual cost: ${actual_cost:.4f}", file=sys.stderr)
-    else:
-        print(result)
-
-    return 0
-
-
-# ============================================================================
-# Subcommand: review
-# ============================================================================
-
-def build_review_prompt(diff: str, focus: str = "general") -> str:
-    """Build the review prompt based on focus area."""
-    focus_guidance = {
-        "general": """Review this code diff for:
-- Bugs and logic errors
-- Edge cases not handled
-- Performance issues
-- Code clarity and maintainability
-- Best practices violations""",
-
-        "security": """Review this code diff for security issues:
-- SQL injection vulnerabilities
-- XSS vulnerabilities
-- Authentication/authorization issues
-- Secrets in code
-- Input validation problems
-- OWASP Top 10 vulnerabilities""",
-
-        "performance": """Review this code diff for performance issues:
-- Inefficient algorithms
-- N+1 query problems
-- Unnecessary database calls
-- Memory leaks
-- Blocking operations
-- Caching opportunities""",
-
-        "architecture": """Review this code diff for architectural issues:
-- Design pattern violations
-- Separation of concerns
-- Code organization
-- Dependency management
-- Maintainability concerns
-- Testability issues""",
-    }
-
-    guidance = focus_guidance.get(focus, focus_guidance["general"])
-
-    return f"""{guidance}
-
-For each issue found:
-1. Describe the problem clearly
-2. Explain why it's a concern
-3. Suggest a specific fix (include code if helpful)
-
-If you suggest code changes, provide them as unified diff patches that can be applied.
-
-Code diff to review:
-
-```diff
-{diff}
-```
-
-Output format:
-## Issues Found
-
-### Issue 1: [Brief Title]
-**Severity:** [Low/Medium/High/Critical]
-**Location:** [file:line]
-**Problem:** [Clear description]
-**Impact:** [Why this matters]
-**Suggested Fix:**
-```diff
-[patch if applicable]
-```
-
-Be specific and actionable. If no issues found, say "No significant issues found."
-"""
+# Load from user config
+load_env_file(Path.home() / ".config" / "claude-mm-tool" / "env")
+
+# Import API and utilities
+from claude_mm.api import plan, review  # noqa: E402
+from claude_mm.cache import clear_cache, get_cache_stats  # noqa: E402
+from claude_mm.config import load_config  # noqa: E402
+from claude_mm.usage import get_usage_stats  # noqa: E402
 
 
 def cmd_review(args):
-    """Review code changes using AI models."""
-    # Read diff from stdin
-    if sys.stdin.isatty():
-        print("Error: No input provided. Pipe a diff to this command:", file=sys.stderr)
-        print("  git diff | ai review", file=sys.stderr)
-        print("  git diff HEAD~1 | ai review --model gemini", file=sys.stderr)
-        return 1
+    """Handle review command."""
+    # Read from stdin
+    if not sys.stdin.isatty():
+        prompt = sys.stdin.read()
+    else:
+        print("Error: No input provided. Pipe content to review:", file=sys.stderr)
+        print("Example: git diff | ai review", file=sys.stderr)
+        sys.exit(1)
 
-    diff = sys.stdin.read().strip()
+    if not prompt.strip():
+        print("Error: Empty input", file=sys.stderr)
+        sys.exit(1)
 
-    if not diff:
-        print("Error: Empty diff provided", file=sys.stderr)
-        return 1
-
-    # Check if this is a multimode (mm) review
-    is_multimode = args.model in ['mm', 'multimode']
-
-    if is_multimode:
-        # Run parallel reviews with GPT and Gemini
-        import threading
-
-        models = ['gpt', 'gemini']
-        results = {}
-        costs = {}
-        errors = {}
-
-        # Estimate cost for multimode BEFORE execution
-        prompt = build_review_prompt(diff, args.focus)
-        gpt_estimate = estimate_cost_from_text('gpt', prompt, expected_output_tokens=800)
-        gemini_estimate = estimate_cost_from_text('gemini', prompt, expected_output_tokens=800)
-        total_estimate = gpt_estimate['estimated_cost'] + gemini_estimate['estimated_cost']
-
-        # Show cost preview
-        print(f"💰 Estimated cost: ${total_estimate:.4f} (GPT: ${gpt_estimate['estimated_cost']:.4f} + Gemini: ${gemini_estimate['estimated_cost']:.4f})", file=sys.stderr)
+    # Handle multimode (mm)
+    if args.model == "mm":
+        models = ["gpt-5.2-instant", "gemini"]
         print("🔍 Running multimode review with GPT + Gemini in parallel...", file=sys.stderr)
-        print(f"📊 Focus: {args.focus}\n", file=sys.stderr)
-
-        def review_with_model(model_name):
-            try:
-                prompt = build_review_prompt(diff, args.focus)
-                system_prompt = "You are an experienced code reviewer. Be thorough but constructive. Focus on real issues, not nitpicks."
-                use_cache = not getattr(args, 'no_cache', False)
-                result = route_to_model(model_name, prompt, system_prompt, use_cache=use_cache, operation="review")
-
-                # Handle tuple return (response, cost) or just response if cached
-                if isinstance(result, tuple):
-                    response_text, actual_cost = result
-                    results[model_name] = response_text
-                    if actual_cost:
-                        costs[model_name] = actual_cost
-                else:
-                    results[model_name] = result
-            except Exception as e:
-                errors[model_name] = str(e)
-
-        # Create and start threads
-        threads = []
-        for model in models:
-            thread = threading.Thread(target=review_with_model, args=(model,))
-            thread.start()
-            threads.append(thread)
-
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
-
-        # Print results
-        for model in models:
-            if model in errors:
-                print(f"\n❌ {model.upper()} Review Failed: {errors[model]}\n", file=sys.stderr)
-            elif model in results:
-                print(f"\n{'=' * 80}")
-                print(f"{'=' * 80}")
-                print(f"{model.upper()} REVIEW")
-                print(f"{'=' * 80}")
-                print(f"{'=' * 80}\n")
-                print(results[model])
-
-                # Show actual cost if available
-                if model in costs:
-                    print(f"\n💰 {model.upper()} cost: ${costs[model]:.4f}", file=sys.stderr)
-
-        if not results:
-            print("❌ All reviews failed", file=sys.stderr)
-            return 1
-
-        # Show total cost for multimode
-        if costs:
-            total_cost = sum(costs.values())
-            print(f"\n💰 Total multimode cost: ${total_cost:.4f}", file=sys.stderr)
-
-        return 0
-
-    # Single model review
-    # Build review prompt
-    prompt = build_review_prompt(diff, args.focus)
-
-    # Estimate cost and warn if expensive
-    cost_estimate = estimate_cost_from_text(args.model, prompt, expected_output_tokens=800)
-    if should_warn_about_cost(args.model, cost_estimate['estimated_cost'], threshold=CONFIG['cost_warning_threshold']):
-        print(format_cost_warning(args.model, cost_estimate['estimated_cost'], "code review"), file=sys.stderr)
-        if args.model == "gpt-5.2-pro":
-            response = input("⚠️  gpt-5.2-pro is expensive! Continue? [y/N]: ")
-            if response.lower() != 'y':
-                print("Aborted.", file=sys.stderr)
-                return 0
-
-    print(f"🔍 Reviewing changes with {args.model} (focus: {args.focus})...", file=sys.stderr)
-    print(f"💰 Estimated cost: {cost_estimate['cost_formatted']}\n", file=sys.stderr)
-
-    system_prompt = "You are an experienced code reviewer. Be thorough but constructive. Focus on real issues, not nitpicks."
-
-    use_cache = not getattr(args, 'no_cache', False)
-    result = route_to_model(args.model, prompt, system_prompt, use_cache=use_cache, operation="review")
-
-    # Handle tuple return (result, actual_cost) or just result if cached
-    if isinstance(result, tuple):
-        response_text, actual_cost = result
-        print(response_text)
-        if actual_cost:
-            print(f"\n💰 Actual cost: ${actual_cost:.4f}", file=sys.stderr)
+        if args.focus and args.focus != "general":
+            print(f"📊 Focus: {args.focus}", file=sys.stderr)
+        print(file=sys.stderr)
     else:
-        print(result)
+        models = [args.model] if args.model else None
 
-    return 0
+    # Run review
+    try:
+        if models and len(models) > 1:
+            # Multi-model review
+            result = review(
+                prompt,
+                models=models,
+                focus=args.focus,
+                use_cache=not args.no_cache,
+            )
 
+            # Display results
+            for i, (model, res) in enumerate(result):
+                if i > 0:
+                    print("\n" + "="*80, file=sys.stdout)
+                print("="*80, file=sys.stdout)
+                print(f"{model.upper()} REVIEW", file=sys.stdout)
+                print("="*80, file=sys.stdout)
+                print(res.text, file=sys.stdout)
 
-# ============================================================================
-# Subcommand: stabilize
-# ============================================================================
+                if not res.cached and res.cost:
+                    print(f"\n\n💰 {model.upper()} cost: ${res.cost:.4f}", file=sys.stderr)
 
-MODE_GUIDANCE = {
-    "migrations": dedent("""\
-    Special focus for database migrations:
-    - Concurrency: Are migrations safe to run concurrently? Advisory locks?
-    - Non-transactional operations: CREATE INDEX CONCURRENTLY, etc.
-    - Rollback strategy: What if migration fails halfway?
-    - Data migration vs schema: Separate concerns?
-    - Idempotency: IF EXISTS, IF NOT EXISTS
-    - Testing: How to test before production?
-    - Locking: What tables/resources will be locked?
-    - Downtime: Required or zero-downtime?
-    """),
+            # Show total cost
+            if result.total_cost > 0:
+                print(f"\n\n💰 Total multimode cost: ${result.total_cost:.4f}", file=sys.stderr)
 
-    "docs": dedent("""\
-    Special focus for documentation:
-    - Patch-only changes: Don't rewrite unless necessary
-    - Spec-safe: Don't break existing API contracts
-    - Examples: Include working code examples
-    - Clarity: Is this understandable to the target audience?
-    - Maintainability: Will this stay accurate as code evolves?
-    - Structure: Logical organization and navigation
-    """),
+        else:
+            # Single model review
+            result = review(
+                prompt,
+                model=models[0] if models else None,
+                focus=args.focus,
+                use_cache=not args.no_cache,
+            )
 
-    "infra": dedent("""\
-    Special focus for infrastructure:
-    - Secrets: How are secrets managed? No secrets in code/config
-    - CI/CD: How is this deployed? Rollout strategy?
-    - Rollback: What's the rollback plan?
-    - Monitoring: How do we know if it's working?
-    - Access control: Who can deploy/access?
-    - Dependencies: What must exist first?
-    - Testing: How to test without affecting production?
-    """),
-}
+            print(result.text, file=sys.stdout)
 
+            if not result.cached and result.cost:
+                print(f"\n💰 Actual cost: ${result.cost:.4f}", file=sys.stderr)
 
-def get_initial_prompt(goal: str, mode: str = None) -> str:
-    """Build the initial planning prompt."""
-    mode_section = ""
-    if mode and mode in MODE_GUIDANCE:
-        mode_section = f"\nMode-specific requirements ({mode}):\n{MODE_GUIDANCE[mode]}"
-
-    return dedent(f"""\
-    You are the planning engine.
-    Create a concrete, step-by-step technical plan for:
-    {goal}
-    {mode_section}
-
-    Output format:
-    # Summary
-    [1-2 sentence overview]
-
-    # Assumptions
-    [What are we assuming is true? What's out of scope?]
-
-    # Decisions Required
-    [Explicit questions that must be answered before implementation]
-    - Question 1: ...
-    - Question 2: ...
-
-    # Architecture
-    [High-level design decisions and patterns]
-
-    # Implementation Steps
-    [Concrete, ordered checklist]
-    1. ...
-    2. ...
-
-    # Risks & Mitigations
-    [What could go wrong? How do we handle it?]
-    - Risk 1: ... → Mitigation: ...
-    - Risk 2: ... → Mitigation: ...
-
-    Be specific and actionable. Force decisions to the surface.
-    """)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
-def get_critique_prompt(plan: str, mode: str = None) -> str:
-    """Build the critique prompt."""
-    mode_section = ""
-    if mode and mode in MODE_GUIDANCE:
-        mode_section = f"\nMode-specific focus ({mode}):\n{MODE_GUIDANCE[mode]}"
-
-    return dedent(f"""\
-    You are a senior technical reviewer.
-    Critique the plan with a focus on:
-    - Missing edge cases
-    - Operational risks
-    - Correctness
-    - Unclear assumptions
-    - Places the plan should force decisions/questions
-    {mode_section}
-
-    Return structured feedback:
-
-    ## Blocking Issues
-    [Issues that must be fixed before this plan is viable]
-
-    ## High-Value Improvements
-    [Changes that would significantly improve the plan]
-
-    ## Questions for Developer
-    [Things the developer must decide/clarify]
-
-    ## Suggested Edits
-    [Specific improvements, as bullet list]
-
-    PLAN TO REVIEW:
-    {plan}
-    """)
-
-
-def get_multi_model_merge_prompt(goal: str, plan: str, feedbacks: list, mode: str = None) -> str:
-    """Build the merge prompt for integrating feedback from multiple models."""
-    mode_section = ""
-    if mode and mode in MODE_GUIDANCE:
-        mode_section = f"\nMode: {mode}"
-
-    # Build feedback sections
-    feedback_sections = []
-    for model_name, feedback in feedbacks:
-        feedback_sections.append(f"{model_name} feedback:\n{feedback}")
-
-    all_feedbacks = "\n\n".join(feedback_sections)
-    reviewer_count = len(feedbacks)
-
-    if reviewer_count == 1:
-        integration_instruction = "Integrate the reviewer's feedback into a revised plan."
+def cmd_plan(args):
+    """Handle plan command."""
+    # Get goal from args or stdin
+    if args.goal:
+        goal = args.goal
+    elif not sys.stdin.isatty():
+        goal = sys.stdin.read()
     else:
-        integration_instruction = f"Integrate ALL {reviewer_count} reviewers' feedback into a revised plan."
+        print("Error: No goal provided", file=sys.stderr)
+        print("Usage: ai plan \"goal\" or echo \"goal\" | ai plan", file=sys.stderr)
+        sys.exit(1)
 
-    return dedent(f"""\
-    You are the plan stabilizer.
-    {integration_instruction}
+    if not goal.strip():
+        print("Error: Empty goal", file=sys.stderr)
+        sys.exit(1)
 
-    Rules:
-    - Preserve good structure; improve clarity and safety
-    - If reviewers disagree, note the tradeoff and propose a default
-    - Convert uncertainties into explicit "Decisions Required" questions
-    - Keep the plan executable (not theoretical)
-    - Maintain the same output format (Summary, Assumptions, etc.)
-    {mode_section}
+    # Run plan
+    try:
+        result = plan(
+            goal,
+            model=args.model,
+            use_cache=not args.no_cache,
+        )
 
-    Goal:
-    {goal}
+        print(result.text, file=sys.stdout)
 
-    Current plan:
-    {plan}
+        if not result.cached and result.cost:
+            print(f"\n💰 Actual cost: ${result.cost:.4f}", file=sys.stderr)
 
-    {all_feedbacks}
-
-    Output ONLY the revised plan in the same format.
-    """)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_stabilize(args):
-    """Run multi-model plan stabilization."""
-    goal = args.goal
-    rounds = args.rounds
-    mode = args.mode
+    """Handle stabilize command."""
+    print("Error: Stabilize not yet migrated to new API", file=sys.stderr)
+    print("Use legacy version for now or contribute the migration!", file=sys.stderr)
+    sys.exit(1)
 
-    print(f"🎯 Goal: {goal}", file=sys.stderr)
-    if mode:
-        print(f"📋 Mode: {mode}", file=sys.stderr)
-    print(f"🔄 Rounds: {rounds}", file=sys.stderr)
-
-    # Estimate cost
-    goal_tokens = estimate_tokens(goal) * 50  # Expand goal into full prompt
-    per_round_cost = estimate_cost("gpt-5.2", goal_tokens * 3, 3000)  # 3 models per round
-    total_estimated_cost = per_round_cost * (rounds + 1)  # +1 for initial plan
-
-    print(f"💰 Estimated total cost: ${total_estimated_cost:.4f} (${per_round_cost:.4f} per round)", file=sys.stderr)
-
-    if total_estimated_cost > CONFIG['cost_warning_threshold'] * 2:  # 2x normal threshold
-        response = input(f"\n⚠️  This operation will cost approximately ${total_estimated_cost:.4f}. Continue? [y/N]: ")
-        if response.lower() != 'y':
-            print("Aborted.", file=sys.stderr)
-            return 0
-
-    print("", file=sys.stderr)
-
-    # Check which API keys are available
-    has_openai = bool(os.getenv("OPENAI_API_KEY"))
-    has_gemini = bool(os.getenv("GOOGLE_AI_API_KEY"))
-    has_claude = bool(os.getenv("ANTHROPIC_API_KEY"))
-
-    available_models = []
-    if has_openai:
-        available_models.append("gpt-5.2")
-    if has_gemini:
-        available_models.append("gemini")
-    if has_claude:
-        available_models.append("claude")
-
-    if not available_models:
-        print("Error: No API keys configured", file=sys.stderr)
-        print("Please set at least one: OPENAI_API_KEY, GOOGLE_AI_API_KEY, or ANTHROPIC_API_KEY", file=sys.stderr)
-        return 1
-
-    # Determine which models to use
-    model_count = len(available_models)
-
-    if model_count >= 3:
-        print("ℹ️  Using 3-model stabilization (GPT-5.2 + Gemini + Claude) ⭐\n", file=sys.stderr)
-        primary_model = "gpt-5.2"
-        critique_models = available_models
-    elif model_count == 2:
-        models_str = " + ".join([m.upper() if m != "gpt-5.2" else "GPT-5.2" for m in available_models])
-        print(f"ℹ️  Using 2-model stabilization ({models_str})\n", file=sys.stderr)
-        # Prefer GPT-5.2 as primary if available, otherwise first available
-        primary_model = "gpt-5.2" if has_openai else available_models[0]
-        critique_models = available_models
-        missing = []
-        if not has_openai:
-            missing.append("OPENAI_API_KEY")
-        if not has_gemini:
-            missing.append("GOOGLE_AI_API_KEY")
-        if not has_claude:
-            missing.append("ANTHROPIC_API_KEY")
-        print(f"⚠️  For best results, add {' or '.join(missing)} for 3-model critique\n", file=sys.stderr)
-    else:  # single model
-        model_name = available_models[0].upper() if available_models[0] != "gpt-5.2" else "GPT-5.2"
-        print(f"ℹ️  Using single-model stabilization ({model_name} only)\n", file=sys.stderr)
-        print("⚠️  For better results, add more API keys for multi-model critique\n", file=sys.stderr)
-        primary_model = available_models[0]
-        critique_models = available_models
-
-    # Round 0: Generate initial plan
-    print(f"Round 0: Generating initial plan with {primary_model}...", file=sys.stderr)
-    initial_prompt = get_initial_prompt(goal, mode)
-    plan = route_to_model(primary_model, initial_prompt, operation="stabilize")
-    print("✓ Initial plan generated\n", file=sys.stderr)
-
-    # Critique/revise rounds
-    for round_num in range(1, rounds + 1):
-        print(f"Round {round_num}: Critique phase...", file=sys.stderr)
-
-        critique_prompt = get_critique_prompt(plan, mode)
-        feedbacks = []
-
-        # Get feedback from available models
-        for model in critique_models:
-            if model == "gpt-5.2":
-                model_name = "GPT-5.2"
-            elif model == "gemini":
-                model_name = "Gemini"
-            elif model == "claude":
-                model_name = "Claude"
-            else:
-                model_name = model.upper()
-            print(f"  • Getting {model_name} feedback...", file=sys.stderr)
-            feedback = route_to_model(model, critique_prompt, operation="stabilize")
-            feedbacks.append((model_name, feedback))
-
-        # Merge feedback and revise
-        print("  • Merging feedback and revising plan...", file=sys.stderr)
-        merge_prompt = get_multi_model_merge_prompt(goal, plan, feedbacks, mode)
-        plan = route_to_model(primary_model, merge_prompt, operation="stabilize")
-
-        print(f"✓ Round {round_num} complete\n", file=sys.stderr)
-
-    print("✅ Plan stabilized\n", file=sys.stderr)
-    print(plan)
-    return 0
-
-
-# ============================================================================
-# Subcommand: cache
-# ============================================================================
 
 def cmd_cache(args):
-    """Manage response cache."""
-    # Default to stats if no subcommand provided
-    if not args.cache_command:
-        args.cache_command = "stats"
-
-    if args.cache_command == "clear":
-        older_than = args.older_than if hasattr(args, 'older_than') else None
-        removed = clear_cache(older_than_hours=older_than)
-        if older_than:
-            print(f"✓ Cleared {removed} cache entries older than {older_than} hours")
-        else:
-            print(f"✓ Cleared {removed} cache entries")
-        return 0
-
-    elif args.cache_command == "stats":
+    """Handle cache management commands."""
+    if args.cache_command == "stats":
         stats = get_cache_stats()
-        print("\n📦 Cache Statistics")
-        print("=" * 60)
-        print(f"\nTotal Files: {stats['total_files']}")
-        print(f"Total Size: {stats['total_size_mb']} MB")
-        if stats['oldest']:
-            from datetime import datetime
-            oldest = datetime.fromisoformat(stats['oldest'])
-            newest = datetime.fromisoformat(stats['newest'])
-            print(f"Oldest Entry: {oldest.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"Newest Entry: {newest.strftime('%Y-%m-%d %H:%M:%S')}")
-        print()
-        return 0
+        print("Cache statistics:")
+        print(f"  Files: {stats['count']}")
+        print(f"  Size: {stats['size_mb']:.2f} MB")
+        if stats['oldest_days'] is not None:
+            print(f"  Oldest: {stats['oldest_days']} days ago")
 
-    else:
-        print(f"Unknown cache command: {args.cache_command}", file=sys.stderr)
-        print("Available: clear, stats", file=sys.stderr)
-        return 1
+    elif args.cache_command == "clear":
+        if args.older_than:
+            cleared = clear_cache(older_than_hours=args.older_than)
+            print(f"✓ Cleared {cleared} cache entries older than {args.older_than} hours")
+        else:
+            cleared = clear_cache()
+            print(f"✓ Cleared all {cleared} cache entries")
 
-
-# ============================================================================
-# Subcommand: usage
-# ============================================================================
 
 def cmd_usage(args):
-    """Display API usage and costs."""
-    import csv
-
-    # Determine time range
-    days = None
-    if args.today:
-        days = 1
-    elif args.week:
-        days = 7
-    elif args.month:
-        days = 30
-
-    stats = get_usage_stats(days=days)
-
-    # Export to CSV if requested
-    if hasattr(args, 'export') and args.export:
-        with open(args.export, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Category', 'Name', 'Calls', 'Cost'])
-
-            # Summary
-            writer.writerow(['Summary', 'Total', stats['total_calls'], stats['total_cost']])
-
-            # By model
-            for model, data in sorted(stats['by_model'].items(), key=lambda x: x[1]['cost'], reverse=True):
-                writer.writerow(['Model', model, data['calls'], data['cost']])
-
-            # By operation
-            for operation, data in sorted(stats['by_operation'].items(), key=lambda x: x[1]['cost'], reverse=True):
-                writer.writerow(['Operation', operation, data['calls'], data['cost']])
-
-        print(f"✓ Exported usage data to {args.export}")
-        return 0
-
-    # Print to terminal
-    if days:
-        period = f"last {days} day{'s' if days > 1 else ''}"
-    else:
-        period = "all time"
-
-    print(f"\n📊 API Usage ({period})")
-    print("=" * 60)
-
-    # Total summary
-    print(f"\nTotal Cost: ${stats['total_cost']:.4f}")
-    print(f"Total Calls: {stats['total_calls']}")
-
-    # By model
-    if stats['by_model']:
-        print("\n" + "By Model".ljust(30) + "Calls".rjust(10) + "Cost".rjust(20))
-        print("-" * 60)
-        for model, data in sorted(stats['by_model'].items(), key=lambda x: x[1]['cost'], reverse=True):
-            calls = data['calls']
-            cost = data['cost']
-            print(f"{model[:28].ljust(30)}{str(calls).rjust(10)}${cost:>18.4f}")
-
-    # By operation
-    if stats['by_operation']:
-        print("\n" + "By Operation".ljust(30) + "Calls".rjust(10) + "Cost".rjust(20))
-        print("-" * 60)
-        for operation, data in sorted(stats['by_operation'].items(), key=lambda x: x[1]['cost'], reverse=True):
-            calls = data['calls']
-            cost = data['cost']
-            print(f"{operation[:28].ljust(30)}{str(calls).rjust(10)}${cost:>18.4f}")
-
-    print()
-    return 0
-
-
-# ============================================================================
-# Main CLI
-# ============================================================================
-
-def main():
-    # Lazy-load configuration (avoids import-time side effects)
-    global CONFIG
-    CONFIG = load_config()
-
-    parser = argparse.ArgumentParser(
-        description="Multi-model AI tooling for planning, code review, and stabilization",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=dedent("""\
-        Examples:
-            ai plan "Build user authentication"
-            ai plan --model gemini "Design caching layer"
-
-            git diff | ai review
-            git diff | ai review --model gemini --focus security
-
-            ai stabilize "Add rate limiting"
-            ai stabilize "Database migrations" --mode migrations --rounds 3
-        """)
+    """Handle usage tracking commands."""
+    stats = get_usage_stats(
+        period="today" if args.today else "week" if args.week else "month" if args.month else "all"
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    print("Usage statistics:")
+    print(f"  Total cost: ${stats['total_cost']:.4f}")
+    print(f"  Total calls: {stats['total_calls']}")
 
-    # plan subcommand
-    plan_parser = subparsers.add_parser("plan", help="Generate implementation plans")
-    plan_parser.add_argument("--model", default=CONFIG['default_models']['plan'], help=f"AI model (default: {CONFIG['default_models']['plan']})")
-    plan_parser.add_argument("--no-cache", action="store_true", help="Bypass response cache")
-    plan_parser.add_argument("prompt", nargs="*", help="Planning prompt")
+    if stats.get('by_model'):
+        print("\n  By model:")
+        for model, data in stats['by_model'].items():
+            print(f"    {model}: ${data['cost']:.4f} ({data['calls']} calls)")
 
-    # review subcommand
+    if stats.get('by_operation'):
+        print("\n  By operation:")
+        for op, data in stats['by_operation'].items():
+            print(f"    {op}: ${data['cost']:.4f} ({data['calls']} calls)")
+
+    if args.export:
+        # Export to CSV
+        import csv
+        with open(args.export, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['timestamp', 'model', 'operation', 'input_tokens', 'output_tokens', 'cost'])
+            for entry in stats.get('entries', []):
+                writer.writerow([
+                    entry['timestamp'],
+                    entry['model'],
+                    entry['operation'],
+                    entry['input_tokens'],
+                    entry['output_tokens'],
+                    entry['cost'],
+                ])
+        print(f"\n✓ Exported to {args.export}")
+
+
+def main():
+    """Main CLI entry point."""
+    # Load config (available for future extension)
+    _ = load_config()
+
+    parser = argparse.ArgumentParser(
+        description="Multi-model AI tooling for code review, planning, and stabilization",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    # Review command
     review_parser = subparsers.add_parser("review", help="Review code changes")
-    review_parser.add_argument("--model", default=CONFIG['default_models']['review'], help=f"AI model (default: {CONFIG['default_models']['review']}), use 'mm' or 'multimode' for parallel GPT+Gemini review")
-    review_parser.add_argument("--focus", default="general", choices=["general", "security", "performance", "architecture"], help="Review focus")
-    review_parser.add_argument("--no-cache", action="store_true", help="Bypass response cache")
+    review_parser.add_argument("--model", help="Model to use (gpt, gemini, claude, mm)")
+    review_parser.add_argument(
+        "--focus",
+        choices=["general", "security", "performance", "architecture"],
+        default="general",
+        help="Review focus area",
+    )
+    review_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 
-    # stabilize subcommand
-    stabilize_parser = subparsers.add_parser("stabilize", help="Multi-model plan stabilization")
-    stabilize_parser.add_argument("goal", help="What to plan")
-    stabilize_parser.add_argument("--rounds", type=int, default=2, help="Critique/revise rounds (default: 2)")
-    stabilize_parser.add_argument("--mode", choices=["migrations", "docs", "infra"], help="Specialized mode")
+    # Plan command
+    plan_parser = subparsers.add_parser("plan", help="Generate implementation plan")
+    plan_parser.add_argument("goal", nargs="?", help="What to plan")
+    plan_parser.add_argument("--model", help="Model to use")
+    plan_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 
-    # cache subcommand
-    cache_parser = subparsers.add_parser("cache", help="Manage response cache")
-    cache_subparsers = cache_parser.add_subparsers(dest="cache_command", help="Cache operations")
+    # Stabilize command
+    stab_parser = subparsers.add_parser("stabilize", help="Multi-round plan stabilization")
+    stab_parser.add_argument("goal", help="What to plan")
+    stab_parser.add_argument("--rounds", type=int, default=2, help="Number of rounds")
+    stab_parser.add_argument(
+        "--mode",
+        choices=["migrations", "docs", "infra"],
+        help="Specialized mode",
+    )
 
-    cache_clear_parser = cache_subparsers.add_parser("clear", help="Clear cache")
-    cache_clear_parser.add_argument("--older-than", type=int, metavar="HOURS", help="Only clear entries older than N hours")
+    # Cache command
+    cache_parser = subparsers.add_parser("cache", help="Manage cache")
+    cache_parser.add_argument(
+        "cache_command",
+        choices=["stats", "clear"],
+        help="Cache operation",
+    )
+    cache_parser.add_argument(
+        "--older-than",
+        type=int,
+        help="Clear entries older than N hours",
+    )
 
-    # stats subcommand has no additional arguments
-    _ = cache_subparsers.add_parser("stats", help="Show cache statistics")
-
-    # usage subcommand
-    usage_parser = subparsers.add_parser("usage", help="Show API usage and costs")
-    usage_group = usage_parser.add_mutually_exclusive_group()
-    usage_group.add_argument("--today", action="store_true", help="Show today's usage")
-    usage_group.add_argument("--week", action="store_true", help="Show this week's usage")
-    usage_group.add_argument("--month", action="store_true", help="Show this month's usage")
-    usage_parser.add_argument("--export", metavar="FILE", help="Export to CSV file")
+    # Usage command
+    usage_parser = subparsers.add_parser("usage", help="View usage statistics")
+    usage_parser.add_argument("--today", action="store_true", help="Today's usage")
+    usage_parser.add_argument("--week", action="store_true", help="This week's usage")
+    usage_parser.add_argument("--month", action="store_true", help="This month's usage")
+    usage_parser.add_argument("--export", help="Export to CSV file")
 
     args = parser.parse_args()
 
     if not args.command:
         parser.print_help()
-        return 1
+        sys.exit(1)
 
-    # Route to subcommand handler
-    if args.command == "plan":
-        return cmd_plan(args)
-    elif args.command == "review":
-        return cmd_review(args)
+    # Route to command handlers
+    if args.command == "review":
+        cmd_review(args)
+    elif args.command == "plan":
+        cmd_plan(args)
     elif args.command == "stabilize":
-        return cmd_stabilize(args)
+        cmd_stabilize(args)
     elif args.command == "cache":
-        return cmd_cache(args)
+        cmd_cache(args)
     elif args.command == "usage":
-        return cmd_usage(args)
+        cmd_usage(args)
     else:
-        print(f"Unknown command: {args.command}", file=sys.stderr)
-        return 1
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
