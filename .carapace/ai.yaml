@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://carapace.sh/schemas/command.json
+name: ai
+description: Multi-model AI tooling for planning, code review, and stabilization
+
+commands:
+  - name: plan
+    description: Generate implementation plans using AI models
+    flags:
+      --model=: AI model to use
+      --no-cache: Bypass response cache
+    completion:
+      flag:
+        model:
+          - "gpt-5.2\tGPT-5.2 Chat Latest ($1.75/$14 per 1M)\tgreen"
+          - "gpt-5.2-instant\tGPT-5.2 Instant - fast ($0.40/$1.60 per 1M)\tcyan"
+          - "gpt-5.2-pro\tGPT-5.2 Pro - expensive ($8.75/$70 per 1M)\tred"
+          - "gemini\tGemini 3 Flash Preview\tblue"
+          - "gemini-pro\tGemini 3 Pro Preview\tmagenta"
+          - "claude\tClaude Sonnet 4.5 (claude-sonnet-4-5-20250929)\tyellow"
+
+  - name: review
+    description: Review code changes (pipe git diff output)
+    flags:
+      --model=: AI model to use
+      --focus=: Review focus area
+      --no-cache: Bypass response cache
+    completion:
+      flag:
+        model:
+          - "mm\tMultimode - parallel GPT + Gemini (fastest)\tmagenta"
+          - "gpt-5.2-instant\tGPT-5.2 Instant - default, fast\tgreen"
+          - "gpt-5.2\tGPT-5.2 Chat Latest\tcyan"
+          - "gemini\tGemini 3 Flash Preview\tblue"
+          - "claude\tClaude Sonnet 4.5 (cross-check)\tyellow"
+        focus:
+          - "general\tGeneral code review\tgreen"
+          - "security\tSecurity vulnerabilities\tred"
+          - "performance\tPerformance issues\tyellow"
+          - "architecture\tArchitectural concerns\tblue"
+
+  - name: stabilize
+    description: Multi-model stabilization (GPT + Gemini critique loops)
+    flags:
+      --rounds=: Number of critique/revise rounds
+      --mode=: Specialized planning mode
+    completion:
+      flag:
+        rounds:
+          - "1\tSingle critique round\tdim"
+          - "2\tTwo rounds (default)\tgreen"
+          - "3\tThree rounds\tyellow"
+        mode:
+          - "migrations\tDatabase migrations focus\tcyan"
+          - "docs\tDocumentation planning\tgreen"
+          - "infra\tInfrastructure planning\tyellow"
+
+  - name: cache
+    description: Manage response cache
+    commands:
+      - name: stats
+        description: Show cache statistics
+      - name: clear
+        description: Clear cache entries
+        flags:
+          --older-than=: Clear entries older than N hours
+
+  - name: usage
+    description: Show API usage and costs
+    flags:
+      --today: Show today's usage
+      --week: Show this week's usage
+      --month: Show this month's usage
+      --export=: Export to CSV file

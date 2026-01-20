@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# Help command for claude-mm-tool
+
+cat <<'EOF'
+claude-mm-tool - Multi-model AI code review and planning
+
+Usage:
+  ./run <command> [args]
+
+Commands:
+  lint [fix]       Run linters (optionally auto-fix)
+  test [type]      Run tests (unit, integration, or all)
+  install          Install ai tool to ~/.local/bin
+  help             Show this help
+
+Examples:
+  ./run lint           # Check code quality
+  ./run lint fix       # Auto-fix linting issues
+  ./run test           # Run all tests
+  ./run test unit      # Run unit tests only
+  ./run install        # Install tool globally
+
+After installation:
+  ai --help            # Show ai command help
+  ai plan "task"       # Generate implementation plan
+  ai review            # Review code changes
+  ai stabilize "goal"  # Multi-round planning
+
+Documentation:
+  README.md           # Full documentation
+  tests/              # Test examples
+EOF

@@ -1,0 +1,17 @@
+name: run
+description: Task runner for claude-mm-tool
+commands:
+  - name: lint
+    description: Run linters
+    completion:
+      positional:
+        - ["fix"]
+  - name: test
+    description: Run tests
+    completion:
+      positional:
+        - ["all", "unit", "integration"]
+  - name: install
+    description: Install ai tool to ~/.local/bin
+  - name: help
+    description: Show help message

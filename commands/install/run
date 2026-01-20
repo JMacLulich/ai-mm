@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+#
+# Install command for claude-mm-tool
+#
+# Installs the ai tool to ~/.local/bin with proper venv
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+main() {
+    cd "$ROOT"
+
+    echo "📦 Installing claude-mm-tool..."
+
+    # Create ~/.local/bin if it doesn't exist
+    mkdir -p "$HOME/.local/bin"
+
+    # Create venv at ~/.local/venvs/ai
+    local venv_dir="$HOME/.local/venvs/ai"
+
+    if [[ ! -d "$venv_dir" ]]; then
+        echo "🐍 Creating Python virtual environment..."
+        python3 -m venv "$venv_dir"
+    fi
+
+    # Install dependencies
+    echo "📚 Installing dependencies..."
+    "$venv_dir/bin/pip" install -q --upgrade pip
+    "$venv_dir/bin/pip" install -q -e "$ROOT"
+    "$venv_dir/bin/pip" install -q -e "$ROOT[dev]"
+
+    # Copy ai script to ~/.local/bin with venv shebang
+    echo "🔧 Installing ai command..."
+    local ai_bin="$HOME/.local/bin/ai"
+    cp "$ROOT/bin/ai" "$ai_bin"
+
+    # Update shebang to use venv Python
+    sed -i.bak "1s|.*|#!$venv_dir/bin/python3|" "$ai_bin"
+    rm "$ai_bin.bak"
+    chmod +x "$ai_bin"
+
+    # Install Carapace completion if .carapace spec exists
+    if [[ -f "$ROOT/.carapace/ai.yaml" ]]; then
+        echo "🎯 Installing shell completions..."
+        mkdir -p "$HOME/.config/carapace/specs"
+        cp "$ROOT/.carapace/ai.yaml" "$HOME/.config/carapace/specs/"
+        echo "  ✓ ai.yaml"
+    fi
+
+    # Check API keys
+    local config_dir="$HOME/.config/claude-mm-tool"
+    local env_file="$config_dir/env"
+
+    mkdir -p "$config_dir"
+
+    if [[ ! -f "$env_file" ]]; then
+        echo ""
+        echo "⚙️  API keys not configured"
+        echo "   Create $env_file with:"
+        echo ""
+        echo "   export OPENAI_API_KEY=\"sk-...\""
+        echo "   export GOOGLE_AI_API_KEY=\"...\""
+        echo "   export ANTHROPIC_API_KEY=\"sk-ant-...\"  # optional"
+        echo ""
+    fi
+
+    echo ""
+    echo "✅ Installation complete!"
+    echo ""
+    echo "   Command: ai"
+    echo "   Location: $ai_bin"
+    echo "   Config: $config_dir"
+    echo ""
+    echo "Try: ai --help"
+}
+
+main "$@"

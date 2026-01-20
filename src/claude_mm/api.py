@@ -1,0 +1,414 @@
+"""
+Public Python API for AI tooling.
+
+This module provides a clean, programmatic interface for code review, planning,
+and stabilization operations. It can be used from Python scripts, Jupyter notebooks,
+or editor integrations (Emacs, VS Code, etc.).
+
+Example usage:
+    from api import review, plan, stabilize
+
+    # Single model review
+    result = review("git diff output", model="gpt")
+
+    # Multi-model review
+    results = review("git diff output", models=["gpt", "gemini"])
+
+    # Planning
+    plan_result = plan("Add user authentication", model="gpt-5.2")
+
+    # Stabilization (multi-round)
+    stable_plan = stabilize("Add caching layer", rounds=2)
+"""
+
+import asyncio
+from decimal import Decimal
+from typing import Dict, List, Optional, Union
+
+from cache import cache_response, get_cached_response
+from config import load_config
+from providers import get_provider
+from providers.base import ProviderResponse
+from usage import log_api_call
+
+# Model name mappings to (provider, model_id)
+MODEL_MAPPING = {
+    "gpt": ("openai", "gpt-5.2"),
+    "gpt-5.2": ("openai", "gpt-5.2"),
+    "gpt-5.2-instant": ("openai", "gpt-5.2-instant"),
+    "gpt-5.2-pro": ("openai", "gpt-5.2-pro"),
+    "gpt-4o": ("openai", "gpt-4o"),
+    "gpt-4": ("openai", "gpt-4"),
+    "gemini": ("google", "gemini-3-flash-preview"),
+    "gemini-3-flash-preview": ("google", "gemini-3-flash-preview"),
+    "claude": ("anthropic", "claude-sonnet-4-5-20250929"),
+    "claude-sonnet": ("anthropic", "claude-sonnet-4-5-20250929"),
+    "claude-opus": ("anthropic", "claude-3-opus-20240229"),
+    "claude-haiku": ("anthropic", "claude-3-haiku-20240307"),
+}
+
+
+class ReviewResult:
+    """Result from a review operation."""
+
+    def __init__(self, response: ProviderResponse, cached: bool = False):
+        self.text = response.text
+        self.model = response.model
+        self.input_tokens = response.input_tokens
+        self.output_tokens = response.output_tokens
+        self.cost = response.cost
+        self.cached = cached
+
+    def __str__(self):
+        return self.text
+
+
+class MultiReviewResult:
+    """Result from a multi-model review."""
+
+    def __init__(self, results: Dict[str, ReviewResult]):
+        self.results = results
+        self.total_cost = sum(r.cost for r in results.values() if r.cost)
+
+    def __getitem__(self, model: str) -> ReviewResult:
+        return self.results[model]
+
+    def __iter__(self):
+        return iter(self.results.items())
+
+
+def review(
+    prompt: str,
+    model: Optional[str] = None,
+    models: Optional[List[str]] = None,
+    focus: str = "general",
+    use_cache: bool = True,
+    cache_ttl: Optional[int] = None,
+) -> Union[ReviewResult, MultiReviewResult]:
+    """
+    Perform code review with one or more AI models.
+
+    Args:
+        prompt: Code or diff to review
+        model: Single model to use (e.g., 'gpt', 'gemini', 'claude')
+        models: Multiple models to use (for parallel review)
+        focus: Review focus ('general', 'security', 'performance', 'architecture')
+        use_cache: Whether to use cached responses
+        cache_ttl: Cache TTL in hours (overrides default)
+
+    Returns:
+        ReviewResult for single model, MultiReviewResult for multiple models
+
+    Examples:
+        >>> result = review("git diff output", model="gpt")
+        >>> print(result.text)
+
+        >>> results = review("git diff output", models=["gpt", "gemini"])
+        >>> for model, result in results:
+        ...     print(f"{model}: {result.text}")
+    """
+    config = load_config()
+
+    # Determine which models to use
+    if models:
+        model_list = models
+    elif model:
+        model_list = [model]
+    else:
+        # Default to configured review model
+        model_list = [config.get("default_models", {}).get("review", "gpt-5.2-instant")]
+
+    # Build system prompt based on focus
+    system_prompts = {
+        "general": "You are an expert code reviewer. Provide thorough, actionable feedback.",
+        "security": "You are a security expert. Focus on security vulnerabilities, input validation, and potential exploits.",
+        "performance": "You are a performance expert. Focus on optimization opportunities, algorithmic efficiency, and resource usage.",
+        "architecture": "You are a software architect. Focus on design patterns, modularity, and long-term maintainability.",
+    }
+    system_prompt = system_prompts.get(focus, system_prompts["general"])
+
+    # Single model review
+    if len(model_list) == 1:
+        return _review_single(
+            prompt,
+            model_list[0],
+            system_prompt,
+            use_cache,
+            cache_ttl or config.get("cache_ttl_hours", 24),
+        )
+
+    # Multi-model review (parallel)
+    return _review_multi(
+        prompt,
+        model_list,
+        system_prompt,
+        use_cache,
+        cache_ttl or config.get("cache_ttl_hours", 24),
+    )
+
+
+def _review_single(
+    prompt: str,
+    model: str,
+    system_prompt: str,
+    use_cache: bool,
+    cache_ttl: int,
+) -> ReviewResult:
+    """Internal: Single model review."""
+    # Check cache first
+    if use_cache:
+        cached = get_cached_response(model, prompt, system_prompt, ttl_hours=cache_ttl)
+        if cached:
+            return ReviewResult(
+                ProviderResponse(
+                    text=cached,
+                    model=model,
+                    input_tokens=0,
+                    output_tokens=0,
+                    cost=Decimal("0"),
+                    cached=True,
+                ),
+                cached=True,
+            )
+
+    # Get provider and call
+    provider_name, model_id = MODEL_MAPPING.get(model, ("openai", model))
+    provider = get_provider(provider_name)
+    response = provider.complete(prompt, model_id, system_prompt)
+
+    # Log usage
+    log_api_call(
+        model=model_id,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+        cost=float(response.cost) if response.cost else 0.0,
+        operation="review",
+    )
+
+    # Cache response
+    if use_cache:
+        cache_response(model, prompt, response.text, system_prompt)
+
+    return ReviewResult(response, cached=False)
+
+
+def _review_multi(
+    prompt: str,
+    models: List[str],
+    system_prompt: str,
+    use_cache: bool,
+    cache_ttl: int,
+) -> MultiReviewResult:
+    """Internal: Multi-model review using asyncio."""
+    # For now, use threading for backward compatibility
+    # TODO: Switch to pure asyncio in future
+    import threading
+
+    results = {}
+    errors = {}
+
+    def review_thread(model_name):
+        try:
+            result = _review_single(prompt, model_name, system_prompt, use_cache, cache_ttl)
+            results[model_name] = result
+        except Exception as e:
+            errors[model_name] = str(e)
+
+    threads = [threading.Thread(target=review_thread, args=(m,)) for m in models]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    if errors:
+        for model, error in errors.items():
+            print(f"Error reviewing with {model}: {error}")
+
+    return MultiReviewResult(results)
+
+
+def plan(
+    goal: str,
+    model: Optional[str] = None,
+    use_cache: bool = True,
+    cache_ttl: Optional[int] = None,
+) -> ReviewResult:
+    """
+    Generate an implementation plan.
+
+    Args:
+        goal: What to plan (e.g., "Add user authentication")
+        model: Model to use (defaults to configured plan model)
+        use_cache: Whether to use cached responses
+        cache_ttl: Cache TTL in hours (overrides default)
+
+    Returns:
+        ReviewResult with the plan
+
+    Example:
+        >>> plan_result = plan("Add caching layer to API")
+        >>> print(plan_result.text)
+    """
+    config = load_config()
+
+    if not model:
+        model = config.get("default_models", {}).get("plan", "gpt-5.2")
+
+    system_prompt = """You are an expert software architect and planner.
+Create a detailed, step-by-step implementation plan.
+Include:
+- Summary of the goal
+- Key assumptions
+- Architecture decisions
+- Implementation steps
+- Potential risks
+"""
+
+    return _review_single(
+        goal,
+        model,
+        system_prompt,
+        use_cache,
+        cache_ttl or config.get("cache_ttl_hours", 24),
+    )
+
+
+def stabilize(
+    goal: str,
+    rounds: int = 2,
+    mode: Optional[str] = None,
+    use_cache: bool = True,
+) -> Dict[str, any]:
+    """
+    Multi-round plan stabilization with critique and revision.
+
+    Args:
+        goal: What to plan
+        rounds: Number of critique/revision rounds
+        mode: Optional mode ('migrations', 'docs', 'infra')
+        use_cache: Whether to use cached responses
+
+    Returns:
+        Dictionary with:
+            - final_plan: The stabilized plan
+            - rounds: List of round results
+            - total_cost: Total cost across all rounds
+
+    Example:
+        >>> result = stabilize("Add user authentication", rounds=2)
+        >>> print(result['final_plan'].text)
+        >>> print(f"Total cost: ${result['total_cost']:.4f}")
+    """
+    # This is a simplified version - full implementation would include
+    # the multi-round critique loop from the current bin/ai stabilize
+    raise NotImplementedError(
+        "Stabilize API implementation in progress. Use CLI for now: ai stabilize"
+    )
+
+
+# Async API variants
+async def review_async(
+    prompt: str,
+    model: Optional[str] = None,
+    models: Optional[List[str]] = None,
+    focus: str = "general",
+    use_cache: bool = True,
+    cache_ttl: Optional[int] = None,
+) -> Union[ReviewResult, MultiReviewResult]:
+    """Async version of review(). See review() for documentation."""
+    config = load_config()
+
+    # Determine which models to use
+    if models:
+        model_list = models
+    elif model:
+        model_list = [model]
+    else:
+        model_list = [config.get("default_models", {}).get("review", "gpt-5.2-instant")]
+
+    # Build system prompt
+    system_prompts = {
+        "general": "You are an expert code reviewer. Provide thorough, actionable feedback.",
+        "security": "You are a security expert. Focus on security vulnerabilities.",
+        "performance": "You are a performance expert. Focus on optimization opportunities.",
+        "architecture": "You are a software architect. Focus on design patterns and maintainability.",
+    }
+    system_prompt = system_prompts.get(focus, system_prompts["general"])
+
+    # Single model
+    if len(model_list) == 1:
+        return await _review_single_async(
+            prompt,
+            model_list[0],
+            system_prompt,
+            use_cache,
+            cache_ttl or config.get("cache_ttl_hours", 24),
+        )
+
+    # Multi-model (parallel with asyncio)
+    tasks = [
+        _review_single_async(
+            prompt,
+            m,
+            system_prompt,
+            use_cache,
+            cache_ttl or config.get("cache_ttl_hours", 24),
+        )
+        for m in model_list
+    ]
+    results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Build results dict
+    results = {}
+    for i, model_name in enumerate(model_list):
+        if isinstance(results_list[i], Exception):
+            print(f"Error reviewing with {model_name}: {results_list[i]}")
+        else:
+            results[model_name] = results_list[i]
+
+    return MultiReviewResult(results)
+
+
+async def _review_single_async(
+    prompt: str,
+    model: str,
+    system_prompt: str,
+    use_cache: bool,
+    cache_ttl: int,
+) -> ReviewResult:
+    """Internal: Async single model review."""
+    # Check cache first (sync operation)
+    if use_cache:
+        cached = get_cached_response(model, prompt, system_prompt, ttl_hours=cache_ttl)
+        if cached:
+            return ReviewResult(
+                ProviderResponse(
+                    text=cached,
+                    model=model,
+                    input_tokens=0,
+                    output_tokens=0,
+                    cost=Decimal("0"),
+                    cached=True,
+                ),
+                cached=True,
+            )
+
+    # Get provider and call async
+    provider_name, model_id = MODEL_MAPPING.get(model, ("openai", model))
+    provider = get_provider(provider_name)
+    response = await provider.complete_async(prompt, model_id, system_prompt)
+
+    # Log usage (sync operation)
+    log_api_call(
+        model=model_id,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+        cost=float(response.cost) if response.cost else 0.0,
+        operation="review",
+    )
+
+    # Cache response (sync operation)
+    if use_cache:
+        cache_response(model, prompt, response.text, system_prompt)
+
+    return ReviewResult(response, cached=False)

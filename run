@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Task runner for claude-mm-tool
+#
+# Usage:
+#   ./run lint [fix]      - Run linters
+#   ./run test            - Run tests
+#   ./run install         - Install tool to ~/.local/bin
+#   ./run help            - Show help
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$SCRIPT_DIR"
+
+# Load command modules
+COMMANDS_DIR="$ROOT/commands"
+
+main() {
+    local command="${1:-help}"
+    shift || true
+
+    case "$command" in
+        lint|test|install|help)
+            if [[ -d "$COMMANDS_DIR/$command" ]]; then
+                "$COMMANDS_DIR/$command/run" "$@"
+            else
+                echo "Error: Command '$command' not found" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Unknown command: $command" >&2
+            echo "Run './run help' for usage" >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

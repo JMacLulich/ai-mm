@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# Test command for claude-mm-tool
+#
+# Usage:
+#   ./run test              - Run all tests
+#   ./run test unit         - Run unit tests only
+#   ./run test integration  - Run integration tests only
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+main() {
+    local test_type="${1:-all}"
+
+    cd "$ROOT"
+
+    # Use venv if available
+    local python="python3"
+    if [[ -d "$HOME/.local/venvs/ai" ]]; then
+        python="$HOME/.local/venvs/ai/bin/python3"
+    fi
+
+    echo "🧪 Running tests..."
+
+    case "$test_type" in
+        unit)
+            echo "==> Unit tests only"
+            "$python" -m pytest tests/unit -v
+            ;;
+        integration)
+            echo "==> Integration tests only (requires API keys)"
+            if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ -z "${GOOGLE_AI_API_KEY:-}" ]]; then
+                echo "⚠️  Warning: API keys not set, integration tests will be skipped"
+                echo "   Set OPENAI_API_KEY and GOOGLE_AI_API_KEY to run integration tests"
+            fi
+            "$python" -m pytest tests/integration -v
+            ;;
+        all|*)
+            echo "==> All tests"
+            "$python" -m pytest tests -v
+            ;;
+    esac
+
+    echo "✓ Tests complete"
+}
+
+main "$@"

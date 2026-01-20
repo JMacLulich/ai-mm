@@ -1,0 +1,38 @@
+[project]
+name = "claude-mm-tool"
+version = "0.1.0"
+description = "Multi-model AI code review and planning tool"
+requires-python = ">=3.11"
+dependencies = [
+    "google-generativeai>=0.3.0",
+    "openai>=1.0.0",
+    "anthropic>=0.8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E402"]  # Module imports after code (needed for env loading)
+
+[tool.ruff.lint.per-file-ignores]
+"bin/ai" = ["E501"]  # Legacy file - ignore line length
+"bin/ai_new" = ["E501"]  # Legacy file - ignore line length
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "--cov=src/claude_mm --cov-report=html --cov-report=term-missing"
