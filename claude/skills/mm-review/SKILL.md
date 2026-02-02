@@ -66,6 +66,7 @@ Use `AskUserQuestion`:
   2. "Security" - "Focus on security vulnerabilities and data safety"
   3. "Performance" - "Focus on performance issues and optimizations"
   4. "Architecture" - "Focus on design patterns and architecture"
+  5. "Testing (QA)" - "Focus on test coverage, testability, edge cases, and quality assurance"
 
 ### Step 4: Run Multi-Model Review
 
@@ -149,6 +150,85 @@ Claude: Running parallel security review with GPT + Gemini...
 3. Remove password from logs
 
 Would you like help implementing any of these fixes?
+```
+
+### Testing (QA) Focus Example
+
+When user selects "Testing", the models should analyze:
+
+- **Test Coverage Gaps**: Missing unit, integration, or E2E tests
+- **Testability Issues**: Code that's difficult to test, tight coupling, hidden dependencies
+- **Edge Cases**: Boundary conditions, null handling, empty states, overflow scenarios
+- **Test Design**: Proper use of test patterns (AAA, Given-When-Then), clear test names
+- **Mocking Strategy**: Over-mocking, under-mocking, brittle test doubles
+- **Test Smells**: Flaky tests, slow tests, test duplication, assertion quality
+- **Property-Based Testing**: Opportunities for generative/invariant testing
+- **Error Paths**: Exception handling, failure scenarios, graceful degradation
+- **Concurrency**: Race conditions, deadlocks, thread safety in tests
+- **Test Pyramid**: Balance between unit/integration/E2E tests
+- **Data Driven**: Parameterized tests, test fixtures, test data factories
+- **API Testing**: Contract validation, response schemas, status codes
+- **Security Testing**: Injection attempts, authentication flows in tests
+- **Performance Testing**: Load testing, stress testing, benchmarking gaps
+- **Accessibility**: WCAG compliance in UI tests, screen reader testing
+- **Internationalization**: Locale handling, timezone, character encoding in tests
+- **CI/CD**: Test execution time, parallelization, test result reporting
+- **Mutation Testing**: Weak assertions, code coverage vs actual test quality
+
+Example output:
+```
+User: "get a mm review" → Selects "Testing (QA)"
+
+Claude: Running parallel testing review with GPT + Gemini...
+[Executes: git diff | ai review --model mm --focus testing]
+
+# Multi-Model Review Summary
+
+## GPT Testing Findings
+1. Missing edge case test for negative values in calculate_discount (line 23)
+2. UserService.test_delete_user has over-mocked database layer - tests implementation not behavior
+3. No integration tests for payment webhook endpoint (critical business logic)
+4. Test suite lacks property-based tests for string validation functions
+5. API tests don't validate response headers (Content-Type, Rate-Limit)
+6. Flaky test: CacheService.test_expiry (timing-dependent, needs mock clock)
+7. No load testing for search endpoint (handles 10x traffic in prod)
+
+## Gemini Testing Findings
+1. calculate_discount missing boundary tests (0, max_value, overflow)
+2. Test fixtures not reused - test data scattered, maintenance burden
+3. No mutation testing coverage - assertions may be passing without validating behavior
+4. Missing concurrency tests for OrderService.order_update (potential race conditions)
+5. Error path tests incomplete - no tests for database connection failures
+6. No accessibility tests in React component suite
+7. Integration tests don't clean up database state - cross-test pollution
+8. API contract tests missing - schema validation not tested
+
+## Consensus Issues (Both Models Agree)
+- Edge case coverage gaps in calculate_discount - HIGH PRIORITY
+- Integration test gap for payment webhook - CRITICAL (business logic)
+- No load testing for production-critical endpoints - HIGH PRIORITY
+- Test data management issues - MEDIUM PRIORITY
+
+## Divergent Perspectives
+- GPT focused on over-mocking in unit tests, Gemini identified test fixture duplication
+- Both valid: need to balance mock usage with fixture strategy
+- GPT flagged flaky tests, Gemini identified test isolation issues (related problems)
+
+## Recommended Actions
+1. Add edge case tests to calculate_discount: 0, negative, max, overflow scenarios
+2. Create integration test suite for payment webhook with test doubles for external services
+3. Implement load testing for search endpoint using k6 or locust (baseline: 1000 RPS)
+4. Set up mutation testing (stryker-mutator) to measure test quality
+5. Refactor UserService tests to reduce mocking, test public interface not internals
+6. Add test data factories/faker.js for consistent test data
+7. Add property-based tests for validation functions (fast-check for JS, hypothesis for Python)
+8. Fix flaky CacheService.test_expiry by injecting mock clock
+9. Add concurrency tests for OrderService with race condition detection
+10. Set up test cleanup hooks (beforeEach, afterEach) to prevent state pollution
+11. Add API contract tests (pact, openapi-schema-validator) for all endpoints
+12. Create accessibility test suite (jest-axe) for React components
+
+Would you like help implementing any of these test improvements?
 ```
 
 ## Integration Notes
