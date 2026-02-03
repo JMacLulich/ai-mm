@@ -4,7 +4,7 @@ Multi-model AI code review and planning CLI tool with parallel execution support
 
 ## Features
 
-- **Parallel Multi-Model Reviews**: Run GPT + Gemini simultaneously for 2x faster feedback
+- **Parallel Multi-Model Reviews**: Run GPT + Gemini + Claude Opus simultaneously for broader feedback
 - **Smart Caching**: 24hr TTL response cache with atomic writes
 - **Cost Tracking**: Every API call logged with detailed analytics
 - **Auto-Retry**: Exponential backoff for transient failures

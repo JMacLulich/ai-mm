@@ -17,6 +17,7 @@ commands:
           - "gemini\tGemini 3 Flash Preview\tblue"
           - "gemini-pro\tGemini 3 Pro Preview\tmagenta"
           - "claude\tClaude Sonnet 4.5 (claude-sonnet-4-5-20250929)\tyellow"
+          - "opus\tClaude Opus 4.5 (claude-opus-4-5-20251101)\tred"
 
   - name: review
     description: Review code changes (pipe git diff output)
@@ -27,16 +28,19 @@ commands:
     completion:
       flag:
         model:
-          - "mm\tMultimode - parallel GPT + Gemini (fastest)\tmagenta"
+          - "mm\tMultimode - parallel GPT + Gemini + Opus 4.5\tmagenta"
+          - "all\tAll 3 fast models (GPT + Gemini + Haiku)\tgreen"
           - "gpt-5.2-chat-latest\tGPT-5.2 Instant - default, fast\tgreen"
           - "gpt-5.2\tGPT-5.2 Chat Latest\tcyan"
           - "gemini\tGemini 3 Flash Preview\tblue"
           - "claude\tClaude Sonnet 4.5 (cross-check)\tyellow"
+          - "opus\tClaude Opus 4.5 (high quality)\tred"
         focus:
           - "general\tGeneral code review\tgreen"
           - "security\tSecurity vulnerabilities\tred"
           - "performance\tPerformance issues\tyellow"
           - "architecture\tArchitectural concerns\tblue"
+          - "testing\tQA and test coverage\tcyan"
 
   - name: stabilize
     description: Multi-model stabilization (GPT + Gemini critique loops)

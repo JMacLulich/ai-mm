@@ -27,16 +27,15 @@ DEFAULT_PRICING = {
         "gemini-pro": {"input": 0.50, "output": 1.50},
     },
     "anthropic": {
+        "claude-opus-4-5-20251101": {"input": 5.00, "output": 25.00},
         "claude-sonnet-4-5-20250929": {"input": 3.00, "output": 15.00},
-        "claude-3-5-sonnet-20241022": {"input": 3.00, "output": 15.00},
-        "claude-3-opus-20240229": {"input": 15.00, "output": 75.00},
-        "claude-3-haiku-20240307": {"input": 0.25, "output": 1.25},
+        "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
     },
     "_metadata": {
         "last_updated": datetime.now().isoformat(),
         "version": "1.0.0",
         "source": "embedded_defaults",
-    }
+    },
 }
 
 

@@ -45,20 +45,22 @@ GEMINI_ALIASES = {
 
 # Anthropic Claude Models
 CLAUDE_MODELS = {
+    "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",  # Latest Opus
     "claude-sonnet-4-5-20250929": "claude-sonnet-4-5-20250929",  # Latest Sonnet
-    "claude-3-5-sonnet-20241022": "claude-3-5-sonnet-20241022",  # Previous Sonnet
-    "claude-3-opus-20240229": "claude-3-opus-20240229",  # Most capable
-    "claude-3-haiku-20240307": "claude-3-haiku-20240307",  # Fast/cheap
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",  # Latest Haiku
 }
 
 CLAUDE_ALIASES = {
     "claude": "claude-sonnet-4-5-20250929",  # Default to latest Sonnet
+    "opus": "claude-opus-4-5-20251101",  # Opus alias
+    "haiku": "claude-haiku-4-5-20251001",
 }
 
 
 # ============================================================================
 # Provider-Model Mappings
 # ============================================================================
+
 
 def get_provider_for_model(model: str) -> Optional[str]:
     """
@@ -144,17 +146,14 @@ def get_model_display_name(api_model: str) -> str:
         "gpt-5.2-pro": "GPT-5.2 Pro",
         "gpt-4o": "GPT-4o",
         "gpt-4": "GPT-4",
-
         # Gemini
         "gemini-3-flash-preview": "Gemini 3 Flash",
         "gemini-2.0-flash-exp": "Gemini 2.0 Flash (Experimental)",
         "gemini-pro": "Gemini Pro",
-
         # Claude
+        "claude-opus-4-5-20251101": "Claude Opus 4.5",
         "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
-        "claude-3-5-sonnet-20241022": "Claude 3.5 Sonnet",
-        "claude-3-opus-20240229": "Claude 3 Opus",
-        "claude-3-haiku-20240307": "Claude 3 Haiku",
+        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
     }
 
     return display_names.get(api_model, api_model)
@@ -203,7 +202,6 @@ def get_model_characteristics(api_model: str) -> Dict[str, any]:
             "context_window": 8192,
             "description": "Legacy GPT-4 model",
         },
-
         # Gemini
         "gemini-3-flash-preview": {
             "speed": "fast",
@@ -223,40 +221,36 @@ def get_model_characteristics(api_model: str) -> Dict[str, any]:
             "context_window": 1000000,
             "description": "Standard Gemini model",
         },
-
         # Claude
+        "claude-opus-4-5-20251101": {
+            "speed": "moderate",
+            "cost_tier": "high",
+            "context_window": 200000,
+            "description": "Premium model with maximum intelligence and practical performance",
+        },
         "claude-sonnet-4-5-20250929": {
             "speed": "fast",
             "cost_tier": "medium",
             "context_window": 200000,
-            "description": "Latest Claude Sonnet",
+            "description": "Smart model for complex agents and coding",
         },
-        "claude-3-5-sonnet-20241022": {
-            "speed": "fast",
-            "cost_tier": "medium",
-            "context_window": 200000,
-            "description": "Previous Claude Sonnet",
-        },
-        "claude-3-opus-20240229": {
-            "speed": "slow",
-            "cost_tier": "high",
-            "context_window": 200000,
-            "description": "Most capable Claude model",
-        },
-        "claude-3-haiku-20240307": {
-            "speed": "fast",
+        "claude-haiku-4-5-20251001": {
+            "speed": "fastest",
             "cost_tier": "low",
             "context_window": 200000,
-            "description": "Fast, cheap Claude model",
+            "description": "Fastest model with near-frontier intelligence",
         },
     }
 
-    return chars.get(api_model, {
-        "speed": "unknown",
-        "cost_tier": "unknown",
-        "context_window": 8192,
-        "description": "Unknown model",
-    })
+    return chars.get(
+        api_model,
+        {
+            "speed": "unknown",
+            "cost_tier": "unknown",
+            "context_window": 8192,
+            "description": "Unknown model",
+        },
+    )
 
 
 def list_all_models() -> Dict[str, list]:

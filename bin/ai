@@ -14,7 +14,7 @@ Usage:
 Examples:
     ai plan "Build user authentication"
     ai review --model gemini --focus security
-    ai review --model mm  # Parallel GPT + Gemini
+    ai review --model mm  # Parallel GPT + Gemini + Claude Opus
     ai stabilize "Add caching layer" --rounds 2 --mode infra
 """
 
@@ -72,8 +72,20 @@ def cmd_review(args):
 
     # Handle multimode (mm)
     if args.model == "mm":
-        models = ["gpt-5.2-chat-latest", "gemini"]
-        print("🔍 Running multimode review with GPT + Gemini in parallel...", file=sys.stderr)
+        models = ["gpt-5.2-chat-latest", "gemini", "claude-opus-4-5-20251101"]
+        print(
+            "🔍 Running multimode review with GPT + Gemini + Claude Opus 4.5 in parallel...",
+            file=sys.stderr,
+        )
+        if args.focus and args.focus != "general":
+            print(f"📊 Focus: {args.focus}", file=sys.stderr)
+        print(file=sys.stderr)
+    elif args.model == "all":
+        models = ["gpt-5.2-chat-latest", "gemini", "claude-haiku-4-5-20251001"]
+        print(
+            "🔍 Running review with all 3 fast models (GPT + Gemini + Haiku 4.5) in parallel...",
+            file=sys.stderr,
+        )
         if args.focus and args.focus != "general":
             print(f"📊 Focus: {args.focus}", file=sys.stderr)
         print(file=sys.stderr)
@@ -247,10 +259,10 @@ def main():
 
     # Review command
     review_parser = subparsers.add_parser("review", help="Review code changes")
-    review_parser.add_argument("--model", help="Model to use (gpt, gemini, claude, mm)")
+    review_parser.add_argument("--model", help="Model to use (gpt, gemini, claude, opus, mm, all)")
     review_parser.add_argument(
         "--focus",
-        choices=["general", "security", "performance", "architecture"],
+        choices=["general", "security", "performance", "architecture", "testing"],
         default="general",
         help="Review focus area",
     )

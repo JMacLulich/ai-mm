@@ -16,8 +16,9 @@ Usage: ./run install [OPTIONS]
 Install claude-mm-tool to ~/.local/bin
 
 Options:
-  --keys    Prompt for missing API keys
   --help    Show this help message
+
+Note: Installer always checks for missing API keys during installation.
 EOF
 }
 
@@ -49,12 +50,9 @@ main() {
     check_dependencies
     cd "$ROOT"
 
-    local force_keys=false
     if [[ "${1:-}" == "--help" ]]; then
         usage
         exit 0
-    elif [[ "${1:-}" == "--keys" ]]; then
-        force_keys=true
     fi
 
     echo "📦 Installing claude-mm-tool..."
@@ -112,84 +110,73 @@ main() {
 
     mkdir -p "$config_dir"
 
-    # Check if we need to prompt for keys
-    local should_prompt=false
-    if [[ ! -f "$env_file" ]]; then
-        should_prompt=true
-        echo ""
-        echo "⚙️  API keys not configured"
-    elif [[ "$force_keys" == true ]]; then
-        should_prompt=true
-        echo ""
-        echo "⚙️  Checking for missing API keys..."
+    # Always check for missing keys
+    echo ""
+    echo "⚙️  Checking API keys..."
+
+    # Parse existing keys if file exists
+    local existing_openai=""
+    local existing_google=""
+    local existing_anthropic=""
+
+    if [[ -f "$env_file" ]]; then
+        existing_openai=$(grep "OPENAI_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
+        existing_google=$(grep "GOOGLE_AI_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
+        existing_anthropic=$(grep "ANTHROPIC_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
     fi
 
-    if [[ "$should_prompt" == true ]]; then
-        # Parse existing keys if file exists
-        local existing_openai=""
-        local existing_google=""
-        local existing_anthropic=""
+    echo ""
 
-        if [[ -f "$env_file" ]]; then
-            existing_openai=$(grep "OPENAI_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
-            existing_google=$(grep "GOOGLE_AI_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
-            existing_anthropic=$(grep "ANTHROPIC_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
+    # Prompt for each key if missing
+    local openai_key="$existing_openai"
+    local google_key="$existing_google"
+    local anthropic_key="$existing_anthropic"
+
+    if [[ -z "$existing_openai" ]]; then
+        read -p "Enter your OpenAI API key (or press Enter to skip): " openai_key
+    else
+        echo "✓ OpenAI API key already configured"
+    fi
+
+    if [[ -z "$existing_google" ]]; then
+        read -p "Enter your Google AI API key (or press Enter to skip): " google_key
+    else
+        echo "✓ Google AI API key already configured"
+    fi
+
+    if [[ -z "$existing_anthropic" ]]; then
+        read -p "Enter your Anthropic API key (optional, press Enter to skip): " anthropic_key
+    else
+        echo "✓ Anthropic API key already configured"
+    fi
+
+    # Write env file if we have at least one key
+    if [[ -n "$openai_key" || -n "$google_key" || -n "$anthropic_key" ]]; then
+        echo "# AI Tool API Keys" > "$env_file"
+        if [[ -n "$openai_key" ]]; then
+            echo "export OPENAI_API_KEY=\"$openai_key\"" >> "$env_file"
         fi
-
+        if [[ -n "$google_key" ]]; then
+            echo "export GOOGLE_AI_API_KEY=\"$google_key\"" >> "$env_file"
+        fi
+        if [[ -n "$anthropic_key" ]]; then
+            echo "export ANTHROPIC_API_KEY=\"$anthropic_key\"" >> "$env_file"
+        fi
+        chmod 600 "$env_file"
         echo ""
-
-        # Prompt for each key if missing
-        local openai_key="$existing_openai"
-        local google_key="$existing_google"
-        local anthropic_key="$existing_anthropic"
-
-        if [[ -z "$existing_openai" ]]; then
-            read -p "Enter your OpenAI API key (or press Enter to skip): " openai_key
-        else
-            echo "✓ OpenAI API key already configured"
-        fi
-
-        if [[ -z "$existing_google" ]]; then
-            read -p "Enter your Google AI API key (or press Enter to skip): " google_key
-        else
-            echo "✓ Google AI API key already configured"
-        fi
-
-        if [[ -z "$existing_anthropic" ]]; then
-            read -p "Enter your Anthropic API key (optional, press Enter to skip): " anthropic_key
-        else
-            echo "✓ Anthropic API key already configured"
-        fi
-
-        # Write env file if we have at least one key
-        if [[ -n "$openai_key" || -n "$google_key" || -n "$anthropic_key" ]]; then
-            echo "# AI Tool API Keys" > "$env_file"
-            if [[ -n "$openai_key" ]]; then
-                echo "export OPENAI_API_KEY=\"$openai_key\"" >> "$env_file"
-            fi
-            if [[ -n "$google_key" ]]; then
-                echo "export GOOGLE_AI_API_KEY=\"$google_key\"" >> "$env_file"
-            fi
-            if [[ -n "$anthropic_key" ]]; then
-                echo "export ANTHROPIC_API_KEY=\"$anthropic_key\"" >> "$env_file"
-            fi
-            chmod 600 "$env_file"
-            echo ""
-            echo "✓ API keys saved to $env_file"
-        else
-            echo ""
-            echo "⚠️  No API keys configured. You can add them later to:"
-            echo "   $env_file"
-            echo ""
-            echo "   Format:"
-            echo "   export OPENAI_API_KEY=\"sk-...\""
-            echo "   export GOOGLE_AI_API_KEY=\"...\""
-            echo "   export ANTHROPIC_API_KEY=\"sk-ant-...\"  # optional"
-        fi
+        echo "✓ API keys saved to $env_file"
+    elif [[ -f "$env_file" ]]; then
+        echo ""
+        echo "✓ All API keys already configured at $env_file"
     else
         echo ""
-        echo "✓ API keys already configured at $env_file"
-        echo "  (Use --keys flag to add missing keys)"
+        echo "⚠️  No API keys configured. You can add them later to:"
+        echo "   $env_file"
+        echo ""
+        echo "   Format:"
+        echo "   export OPENAI_API_KEY=\"sk-...\""
+        echo "   export GOOGLE_AI_API_KEY=\"...\""
+        echo "   export ANTHROPIC_API_KEY=\"sk-ant-...\"  # optional"
     fi
 
     echo ""

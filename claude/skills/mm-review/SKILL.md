@@ -1,6 +1,6 @@
 ---
 name: mm-review
-description: Run parallel multi-model AI code reviews using GPT + Gemini for instant dual perspectives on code changes. Use when user says "mm review", "get a mm review", "multimode review", "run mm review", "review with mm", "get multi-model feedback", or "parallel review".
+description: Run parallel multi-model AI code reviews using GPT + Gemini + Claude Opus for instant multi-perspective feedback on code changes. Use when user says "mm review", "get a mm review", "multimode review", "run mm review", "review with mm", "get multi-model feedback", or "parallel review".
 disable-model-invocation: false
 allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), AskUserQuestion
 ---
@@ -9,7 +9,7 @@ allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), AskUserQuestion
 
 ## Purpose
 
-Run parallel multi-model AI code reviews using the `claude-mm-tool`. Provides instant dual perspectives from GPT + Gemini for faster, broader feedback.
+Run parallel multi-model AI code reviews using the `claude-mm-tool`. Provides instant perspectives from GPT + Gemini + Claude Opus for broader feedback.
 
 ## When to Use
 
@@ -79,6 +79,7 @@ git diff | ai review --model mm --focus {chosen_focus}
 The output will show:
 - GPT review results
 - Gemini review results
+- Claude Opus 4.5 review results
 - Displayed side-by-side for comparison
 
 ### Step 5: Summarize Results
@@ -94,8 +95,14 @@ Present a structured summary:
 ## Gemini Findings
 [Summarize Gemini's key points - top 3-5 issues]
 
+## Claude Opus 4.5 Findings
+[Summarize Opus's key points - top 3-5 issues]
+
 ## Consensus Issues
-[Issues both models agree on - these are high priority]
+[Issues all 3 models agree on - highest priority]
+
+## Partial Consensus (2/3 Models)
+[Issues where 2 models agree - high priority]
 
 ## Divergent Perspectives
 [Where models disagree - user should investigate further]
@@ -122,7 +129,7 @@ Claude: I'll run a multi-model review. What focus do you want?
 
 User: [Selects "Security"]
 
-Claude: Running parallel security review with GPT + Gemini...
+Claude: Running parallel security review with GPT + Gemini + Claude Opus 4.5...
 [Executes: git diff | ai review --model mm --focus security]
 
 # Multi-Model Review Summary
@@ -137,17 +144,29 @@ Claude: Running parallel security review with GPT + Gemini...
 2. SQL injection in user_id (matches GPT)
 3. Rate limiting missing on login endpoint
 
-## Consensus Issues
+## Claude Opus 4.5 Findings
+1. CSRF token missing on state-changing operations
+2. SQL injection in user_id (matches GPT and Gemini)
+3. Weak password hashing algorithm (bcrypt recommended over md5)
+
+## Consensus Issues (All 3 Models Agree)
 - SQL injection vulnerability (line 42) - CRITICAL
 
+## Partial Consensus (2/3 Models Agree)
+- Rate limiting missing on login endpoint (GPT + Gemini)
+- Password security concerns (GPT logging issue + Opus hashing recommendation)
+
 ## Divergent Perspectives
-- GPT flagged logging issue, Gemini focused on rate limiting
-- Both valid, different perspectives on priority
+- Opus identified CSRF risk that others missed
+- GPT and Gemini focused on input validation, Opus focused on authentication tokens
+- All valid, different security perspectives
 
 ## Recommended Actions
-1. Fix SQL injection immediately (use parameterized queries)
-2. Add rate limiting to prevent brute force
-3. Remove password from logs
+1. Fix SQL injection immediately (use parameterized queries) - **ALL MODELS AGREE**
+2. Add CSRF tokens to all state-changing forms - **Opus priority**
+3. Upgrade password hashing from md5 to bcrypt - **Opus priority**
+4. Add rate limiting to prevent brute force - **GPT + Gemini priority**
+5. Remove password from logs - **GPT priority**
 
 Would you like help implementing any of these fixes?
 ```
@@ -179,7 +198,7 @@ Example output:
 ```
 User: "get a mm review" → Selects "Testing (QA)"
 
-Claude: Running parallel testing review with GPT + Gemini...
+Claude: Running parallel testing review with GPT + Gemini + Claude Opus 4.5...
 [Executes: git diff | ai review --model mm --focus testing]
 
 # Multi-Model Review Summary
@@ -203,21 +222,35 @@ Claude: Running parallel testing review with GPT + Gemini...
 7. Integration tests don't clean up database state - cross-test pollution
 8. API contract tests missing - schema validation not tested
 
-## Consensus Issues (Both Models Agree)
+## Claude Opus 4.5 Testing Findings
+1. calculate_discount missing boundary tests (matches Gemini)
+2. No golden master / snapshot tests for UI components
+3. Test database not isolated - integration tests interfere with local dev data
+4. Missing chaos engineering / failure injection tests
+5. Test assertions too brittle - exact string matching instead of structural validation
+6. No A/B testing framework for validating business logic changes
+7. Performance regression tests absent - no baseline comparisons
+
+## Consensus Issues (All 3 Models Agree)
 - Edge case coverage gaps in calculate_discount - HIGH PRIORITY
 - Integration test gap for payment webhook - CRITICAL (business logic)
 - No load testing for production-critical endpoints - HIGH PRIORITY
 - Test data management issues - MEDIUM PRIORITY
 
+## Partial Consensus (2/3 Models Agree)
+- Test isolation problems (Gemini + Opus)
+- Brittle test patterns (GPT over-mocking + Opus assertion brittleness)
+
 ## Divergent Perspectives
-- GPT focused on over-mocking in unit tests, Gemini identified test fixture duplication
-- Both valid: need to balance mock usage with fixture strategy
-- GPT flagged flaky tests, Gemini identified test isolation issues (related problems)
+- Opus identified golden master / snapshot testing need
+- Opus emphasized chaos engineering and failure injection
+- GPT focused on mock usage, Gemini on fixtures, Opus on assertions
+- All valid, complementary testing perspectives
 
 ## Recommended Actions
 1. Add edge case tests to calculate_discount: 0, negative, max, overflow scenarios
 2. Create integration test suite for payment webhook with test doubles for external services
-3. Implement load testing for search endpoint using k6 or locust (baseline: 1000 RPS)
+3. Implement load testing for search endpoint using k6 or locust (baseline: 1000 RPS) - **ALL MODELS AGREE**
 4. Set up mutation testing (stryker-mutator) to measure test quality
 5. Refactor UserService tests to reduce mocking, test public interface not internals
 6. Add test data factories/faker.js for consistent test data
@@ -227,6 +260,10 @@ Claude: Running parallel testing review with GPT + Gemini...
 10. Set up test cleanup hooks (beforeEach, afterEach) to prevent state pollution
 11. Add API contract tests (pact, openapi-schema-validator) for all endpoints
 12. Create accessibility test suite (jest-axe) for React components
+13. Add snapshot testing for UI components - **Opus priority**
+14. Implement test database isolation (Docker or separate schema) - **Opus priority**
+15. Set up chaos engineering tests (using Chaos Monkey or similar) - **Opus priority**
+16. Refactor brittle assertions to use structural validation - **Opus priority**
 
 Would you like help implementing any of these test improvements?
 ```
@@ -240,10 +277,19 @@ This skill integrates with the separate `claude-mm-tool` repository:
 
 ## Cost Information
 
-- Typical mm review: $0.02-0.03
-- Uses: GPT-5.2 Instant (gpt-5.2-chat-latest) + Gemini-3-flash-preview
+- Typical mm review: $0.05-0.12
+- Uses: GPT-5.2 Instant (gpt-5.2-chat-latest) + Gemini-3-flash-preview + Claude Opus 4.5
 - Parallel execution: ~2-3 seconds
 - Cached for 24 hours
+
+### Model-Specific Reviews
+
+You can also use specific models:
+- `ai review --model gpt` - GPT-5.2 Chat Latest only ($1.75/$14 per 1M tokens)
+- `ai review --model gemini` - Gemini 3 Flash Preview only ($0.075/$0.30 per 1M tokens)
+- `ai review --model claude` - Claude Sonnet 4.5 only ($3/$15 per 1M tokens)
+- `ai review --model opus` - Claude Opus 4.5 only ($5/$25 per 1M tokens)
+- `ai review --model all` - All 3 fast models (GPT + Gemini + Haiku 4.5) in parallel
 
 ## Troubleshooting
 
