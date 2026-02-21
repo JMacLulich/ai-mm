@@ -1,1 +1,1 @@
-"""Integration tests for claude-mm-tool."""
+"""Integration tests for ai-mm."""

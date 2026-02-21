@@ -1,1 +1,1 @@
-"""Unit tests for claude-mm-tool."""
+"""Unit tests for ai-mm."""

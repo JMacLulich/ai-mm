@@ -15,8 +15,8 @@ Multi-model AI code review and planning CLI tool with parallel execution support
 ### Quick Start
 
 ```bash
-git clone https://github.com/JMacLulich/claude-mm-tool
-cd claude-mm-tool
+git clone https://github.com/JMacLulich/ai-mm
+cd ai-mm
 ./run install
 ```
 
@@ -40,7 +40,7 @@ During installation, you'll be prompted for:
 
 **You can press Enter to skip any key** and add them later.
 
-API keys are stored securely at `~/.config/claude-mm-tool/env` with restricted permissions (chmod 600).
+API keys are stored securely at `~/.config/ai-mm/env` with restricted permissions (chmod 600).
 
 ### Adding or Updating API Keys Later
 
@@ -65,7 +65,7 @@ $ ./run install --keys
 Enter your OpenAI API key (or press Enter to skip): sk-proj-...
 ✓ Anthropic API key already configured
 
-✓ API keys saved to ~/.config/claude-mm-tool/env
+✓ API keys saved to ~/.config/ai-mm/env
 ```
 
 ## Usage
@@ -110,7 +110,7 @@ ai cache clear --older-than 24
 ## Architecture
 
 ```
-claude-mm-tool/
+ai-mm/
 ├── src/claude_mm/          # Python package
 │   ├── api.py              # API module interface
 │   ├── cache.py            # Response caching (atomic writes)
@@ -136,7 +136,7 @@ claude-mm-tool/
 
 ### API Keys Location
 
-API keys are stored at: `~/.config/claude-mm-tool/env`
+API keys are stored at: `~/.config/ai-mm/env`
 
 **Recommended:** Use the installer to configure keys interactively:
 
@@ -148,17 +148,17 @@ API keys are stored at: `~/.config/claude-mm-tool/env`
 
 ```bash
 # Create the config directory
-mkdir -p ~/.config/claude-mm-tool
+mkdir -p ~/.config/ai-mm
 
 # Create the env file
-cat > ~/.config/claude-mm-tool/env <<'EOF'
+cat > ~/.config/ai-mm/env <<'EOF'
 export OPENAI_API_KEY="sk-..."
 export GOOGLE_AI_API_KEY="..."
 export ANTHROPIC_API_KEY="sk-ant-..."  # optional
 EOF
 
 # Set secure permissions
-chmod 600 ~/.config/claude-mm-tool/env
+chmod 600 ~/.config/ai-mm/env
 ```
 
 **Note:** The installer automatically sets proper permissions (chmod 600) to keep your keys secure.

@@ -9,7 +9,7 @@ allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), AskUserQuestion
 
 ## Purpose
 
-Run parallel multi-model AI code reviews using the `claude-mm-tool`. Provides instant perspectives from GPT + Gemini + Claude Opus for broader feedback.
+Run parallel multi-model AI code reviews using the `ai-mm`. Provides instant perspectives from GPT + Gemini + Claude Opus for broader feedback.
 
 ## When to Use
 
@@ -24,14 +24,14 @@ Use this skill when user says:
 
 ## Prerequisites
 
-- `claude-mm-tool` must be installed at `~/dev/claude-mm-tool` or `~/../claude-mm-tool`
-- API keys configured in `~/.config/claude-mm-tool/env`
+- `ai-mm` must be installed at `~/dev/ai-mm` or `~/../ai-mm`
+- API keys configured in `~/.config/ai-mm/env`
 
 ## Instructions
 
 ### Step 1: Verify Tool Installation
 
-Check if claude-mm-tool is installed:
+Check if ai-mm is installed:
 
 ```bash
 which ai
@@ -39,7 +39,7 @@ which ai
 
 If not found, guide user to install:
 ```bash
-cd ~/dev/claude-mm-tool
+cd ~/dev/ai-mm
 ./run install
 ```
 
@@ -270,9 +270,9 @@ Would you like help implementing any of these test improvements?
 
 ## Integration Notes
 
-This skill integrates with the separate `claude-mm-tool` repository:
-- Repository: https://github.com/JMacLulich/claude-mm-tool
-- Installation: `cd ~/dev/claude-mm-tool && ./run install`
+This skill integrates with the separate `ai-mm` repository:
+- Repository: https://github.com/JMacLulich/ai-mm
+- Installation: `cd ~/dev/ai-mm && ./run install`
 - Command: `ai review --model mm`
 
 ## Cost Information
@@ -297,7 +297,7 @@ You can also use specific models:
 → Tool not installed. Guide user through installation.
 
 **"Error: OPENAI_API_KEY not set"**
-→ API keys not configured. User needs to create `~/.config/claude-mm-tool/env`
+→ API keys not configured. User needs to create `~/.config/ai-mm/env`
 
 **"No changes to review"**
 → Ask user what they want to review (specific files, branch diff, etc.)

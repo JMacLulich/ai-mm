@@ -15,7 +15,7 @@ from pathlib import Path
 
 def get_cache_dir() -> Path:
     """Get the cache directory path."""
-    cache_dir = Path.home() / ".config" / "claude-mm-tool" / "cache"
+    cache_dir = Path.home() / ".config" / "ai-mm" / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
@@ -89,10 +89,7 @@ def cache_response(model: str, prompt: str, response: str, system_prompt: str = 
         # Use atomic write: write to temp file, then rename
         # This prevents corruption if multiple processes write simultaneously
         with tempfile.NamedTemporaryFile(
-            mode='w',
-            dir=cache_dir,
-            delete=False,
-            suffix='.tmp'
+            mode="w", dir=cache_dir, delete=False, suffix=".tmp"
         ) as tmp_file:
             json.dump(cache_data, tmp_file)
             tmp_path = tmp_file.name
@@ -102,10 +99,11 @@ def cache_response(model: str, prompt: str, response: str, system_prompt: str = 
     except Exception as e:
         # Don't fail the operation if caching fails
         import sys
+
         print(f"Warning: Failed to cache response: {e}", file=sys.stderr)
         # Clean up temp file if it exists
         try:
-            if 'tmp_path' in locals():
+            if "tmp_path" in locals():
                 Path(tmp_path).unlink(missing_ok=True)
         except Exception:
             pass

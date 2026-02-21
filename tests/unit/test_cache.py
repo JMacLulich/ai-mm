@@ -76,7 +76,7 @@ def test_cache_expiry(temp_cache_dir, monkeypatch):
 
     # Simulate time passing by modifying cache file timestamp
     cache_key = get_cache_key(model, prompt, system_prompt)
-    cache_file = Path.home() / ".config" / "claude-mm-tool" / "cache" / f"{cache_key}.json"
+    cache_file = Path.home() / ".config" / "ai-mm" / "cache" / f"{cache_key}.json"
 
     # Set timestamp to 25 hours ago (past default 24hr TTL)
     old_time = (datetime.now() - timedelta(hours=25)).isoformat()
