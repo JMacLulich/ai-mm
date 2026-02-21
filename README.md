@@ -1,18 +1,15 @@
-# Claude Multi-Model (MM) Tool
+# AI MM - Multi-Model Code Review Tool
 
-Multi-model AI code review and planning CLI tool with parallel execution support.
+Get code reviews from GPT, Gemini, Claude, and local LLMs (Ollama) - in parallel or individually.
 
-## Features
+## Why AI MM?
 
-- **Parallel Multi-Model Reviews**: Run GPT + Gemini + Claude Opus simultaneously for broader feedback
-- **Smart Caching**: 24hr TTL response cache with atomic writes
-- **Cost Tracking**: Every API call logged with detailed analytics
-- **Auto-Retry**: Exponential backoff for transient failures
-- **Multiple Models**: GPT-5.2, GPT-5.2-instant, Gemini, Claude
+- **Broader feedback**: Different models catch different issues. Run them in parallel, get consolidated reviews.
+- **Works offline**: Use Ollama with Qwen or Llama for free, private reviews on your machine.
+- **Cost-aware**: Every API call tracked, cached responses save money.
+- **Architecture-focused**: Reviews check DRY, Single Responsibility, and Least Astonishment principles.
 
 ## Installation
-
-### Quick Start
 
 ```bash
 git clone https://github.com/JMacLulich/ai-mm
@@ -20,62 +17,47 @@ cd ai-mm
 ./run install
 ```
 
-### What Happens During Installation
+### What Gets Installed
 
-The installer will:
+1. Python virtual environment at `~/.local/venvs/ai/`
+2. The `ai` command in `~/.local/bin/ai`
+3. Shell completions (if Carapace is installed)
+4. Interactive API key configuration
 
-1. **Create a Python virtual environment** at `~/.local/venvs/ai/`
-2. **Install dependencies** (openai, google-generativeai, anthropic, pytest, ruff)
-3. **Install the `ai` command** to `~/.local/bin/ai`
-4. **Install shell completions** (if Carapace is installed)
-5. **Prompt for API keys** interactively
+### API Keys
 
-### API Keys Configuration
-
-During installation, you'll be prompted for:
-
-- **OpenAI API key** (required for GPT models) - Get from https://platform.openai.com/api-keys
-- **Google AI API key** (required for Gemini models) - Get from https://aistudio.google.com/apikey
-- **Anthropic API key** (optional, for Claude models) - Get from https://console.anthropic.com/
-
-**You can press Enter to skip any key** and add them later.
-
-API keys are stored securely at `~/.config/ai-mm/env` with restricted permissions (chmod 600).
-
-### Adding or Updating API Keys Later
-
-If you skipped API keys during installation or need to add missing ones:
+Configure during installation or later with:
 
 ```bash
-./run install --keys
+ai config  # Interactive TUI for managing keys
 ```
 
-**What this does:**
-- Checks which keys are already configured
-- Shows ✓ for keys you have
-- Only prompts for missing keys
-- Never overwrites existing keys
+**Supported providers:**
+- **OpenAI** - GPT-5.2 models
+- **Google** - Gemini 3 Pro
+- **Anthropic** - Claude Opus 4.5
+- **Ollama** - Local LLMs (no key needed)
 
-**Example:**
-```bash
-$ ./run install --keys
-⚙️  Checking for missing API keys...
-
-✓ Google AI API key already configured
-Enter your OpenAI API key (or press Enter to skip): sk-proj-...
-✓ Anthropic API key already configured
-
-✓ API keys saved to ~/.config/ai-mm/env
-```
+Keys stored at `~/.config/ai-mm/env` with secure permissions.
 
 ## Usage
 
 ```bash
-# Multi-model parallel review (fastest)
+# Parallel multi-model review (GPT + Gemini + Claude)
 git diff | ai review --model mm
 
-# Single model review
-git diff | ai review --model gpt-5.2-chat-latest --focus security
+# Fast models only (cheaper)
+git diff | ai review --model fast
+
+# Single model
+git diff | ai review --model gpt --focus security
+git diff | ai review --model gemini --focus performance
+
+# Local LLM (free, offline)
+git diff | ai review --model ollama
+
+# Architecture review
+git diff | ai review --model mm --focus architecture
 
 # Planning
 ai plan "Add user authentication"
@@ -83,112 +65,81 @@ ai plan "Add user authentication"
 # Multi-round stabilized planning
 ai stabilize "Design rate limiting" --rounds 2
 
-# Cost tracking
+# Check costs
 ai usage --week
 
-# Cache management
+# Manage cache
 ai cache stats
-ai cache clear --older-than 24
+ai cache clear
 ```
+
+## Local LLM Support
+
+Use Ollama for free, private code reviews:
+
+```bash
+# Install Ollama
+brew install ollama
+ollama pull qwen2.5:14b
+
+# Review with local model
+git diff | ai review --model ollama
+```
+
+No API key needed. Works offline. Your code never leaves your machine.
 
 ## Development
 
 ```bash
-# Lint code
-./run lint
-./run lint fix
-
-# Run tests
-./run test
-./run test unit
-./run test integration
-
-# Install locally
-./run install
+./run lint        # Check code quality
+./run lint fix    # Auto-fix issues
+./run test        # Run all tests
+./run test unit   # Unit tests only
+./run install     # Reinstall after changes
 ```
 
 ## Architecture
 
 ```
 ai-mm/
-├── src/claude_mm/          # Python package
-│   ├── api.py              # API module interface
-│   ├── cache.py            # Response caching (atomic writes)
-│   ├── costs.py            # Cost estimation & pricing
-│   ├── config.py           # Configuration management
-│   ├── retry.py            # Exponential backoff
-│   ├── usage.py            # Cost logging & analytics
-│   └── providers/          # Model provider implementations
-├── bin/
-│   └── ai                  # Main CLI (modular architecture)
-├── tests/
-│   ├── unit/               # Unit tests
-│   └── integration/        # Integration tests
-├── commands/               # ./run command modules
-│   ├── lint/
-│   ├── test/
-│   ├── install/
-│   └── help/
-└── .carapace/              # Shell completions
+├── src/claude_mm/
+│   ├── api.py              # Review and plan functions
+│   ├── cache.py            # Response caching
+│   ├── costs.py            # Cost estimation
+│   ├── config_tui.py       # Interactive config UI
+│   ├── env.py              # API key management
+│   ├── prompts.py          # System prompts
+│   ├── models.py           # Model registry
+│   └── providers/          # OpenAI, Google, Anthropic, Ollama
+├── bin/ai                  # CLI entry point
+├── tests/                  # Unit and integration tests
+└── commands/               # ./run commands
 ```
 
 ## Configuration
 
-### API Keys Location
-
-API keys are stored at: `~/.config/ai-mm/env`
-
-**Recommended:** Use the installer to configure keys interactively:
-
 ```bash
-./run install --keys
-```
+# Interactive config UI
+ai config
 
-**Manual setup:** Create the file manually:
-
-```bash
-# Create the config directory
+# Manual setup
 mkdir -p ~/.config/ai-mm
-
-# Create the env file
 cat > ~/.config/ai-mm/env <<'EOF'
 export OPENAI_API_KEY="sk-..."
 export GOOGLE_AI_API_KEY="..."
-export ANTHROPIC_API_KEY="sk-ant-..."  # optional
+export ANTHROPIC_API_KEY="sk-ant-..."
+# No key needed for Ollama
 EOF
-
-# Set secure permissions
 chmod 600 ~/.config/ai-mm/env
-```
-
-**Note:** The installer automatically sets proper permissions (chmod 600) to keep your keys secure.
-
-## Testing
-
-```bash
-# Unit tests (no API keys needed)
-./run test unit
-
-# Integration tests (requires API keys)
-export OPENAI_API_KEY="sk-..."
-export GOOGLE_AI_API_KEY="..."
-./run test integration
-
-# All tests with coverage
-./run test
 ```
 
 ## Design Principles
 
-- **Single Responsibility**: Each module has one clear purpose
-- **Thread-Safe**: Atomic writes, file locking
-- **Observable**: All API calls logged with cost
-- **Fail-Safe**: Auto-retry with smart error detection
+- **Single Responsibility**: Each module does one thing well
+- **Thread-Safe**: Atomic writes, file locking for parallel operations
+- **Observable**: All API calls logged with costs
+- **Fail-Safe**: Auto-retry with exponential backoff
 - **Fast**: Parallel execution, response caching
-
-## Acknowledgements
-
-The `./run` system was inspired by https://github.com/alesya-h/ - thank you Alesya!
 
 ## License
 
