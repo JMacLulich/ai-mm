@@ -19,6 +19,7 @@ class ProviderResponse:
     This ensures consistent handling of responses regardless of which
     provider is being used.
     """
+
     text: str
     model: str
     input_tokens: int
@@ -30,6 +31,7 @@ class ProviderResponse:
 
 class ProviderError(Exception):
     """Base exception for all provider-related errors."""
+
     pass
 
 
@@ -60,7 +62,7 @@ class Provider(ABC):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ProviderResponse:
         """
         Synchronous completion request.
@@ -89,7 +91,7 @@ class Provider(ABC):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ProviderResponse:
         """
         Asynchronous completion request.
@@ -148,3 +150,12 @@ class Provider(ABC):
         )
 
         return input_cost + output_cost
+
+    def validate_key(self) -> tuple[bool, str]:
+        """
+        Validate that the API key is working.
+
+        Returns:
+            Tuple of (success, message)
+        """
+        return True, "Valid (not checked)"

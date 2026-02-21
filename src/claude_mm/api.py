@@ -115,8 +115,18 @@ def review(
             "algorithmic efficiency, and resource usage."
         ),
         "architecture": (
-            "You are a software architect. Focus on design patterns, modularity, "
-            "and long-term maintainability."
+            "You are a software architect conducting a code architecture review. "
+            "Evaluate the code against these CRITICAL principles:\n\n"
+            "**DRY (Don't Repeat Yourself)**: Identify duplicated logic, repeated patterns, "
+            "and copy-paste code that should be extracted into reusable functions or modules.\n\n"
+            "**Single Responsibility Principle (SRP)**: Every module, class, and function "
+            "should have ONE reason to change. Flag god objects, multi-purpose classes, "
+            "and functions doing too many things.\n\n"
+            "**Principle of Least Astonishment (POLA)**: Code should behave as users expect. "
+            "Flag surprising side effects, confusing naming, non-obvious behavior, "
+            "and APIs that violate developer expectations.\n\n"
+            "Also consider: modularity, separation of concerns, dependency injection, "
+            "and long-term maintainability. Provide specific, actionable recommendations."
         ),
     }
     system_prompt = system_prompts.get(focus, system_prompts["general"])
@@ -326,7 +336,18 @@ async def review_async(
         "security": "You are a security expert. Focus on security vulnerabilities.",
         "performance": "You are a performance expert. Focus on optimization opportunities.",
         "architecture": (
-            "You are a software architect. Focus on design patterns and maintainability."
+            "You are a software architect conducting a code architecture review. "
+            "Evaluate the code against these CRITICAL principles:\n\n"
+            "**DRY (Don't Repeat Yourself)**: Identify duplicated logic, repeated patterns, "
+            "and copy-paste code that should be extracted into reusable functions or modules.\n\n"
+            "**Single Responsibility Principle (SRP)**: Every module, class, and function "
+            "should have ONE reason to change. Flag god objects, multi-purpose classes, "
+            "and functions doing too many things.\n\n"
+            "**Principle of Least Astonishment (POLA)**: Code should behave as users expect. "
+            "Flag surprising side effects, confusing naming, non-obvious behavior, "
+            "and APIs that violate developer expectations.\n\n"
+            "Also consider: modularity, separation of concerns, dependency injection, "
+            "and long-term maintainability. Provide specific, actionable recommendations."
         ),
     }
     system_prompt = system_prompts.get(focus, system_prompts["general"])

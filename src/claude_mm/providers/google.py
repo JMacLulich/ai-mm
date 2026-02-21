@@ -28,8 +28,7 @@ class GoogleProvider(Provider):
 
         if not self.api_key:
             raise ProviderError(
-                "GOOGLE_AI_API_KEY not set. "
-                "Set via environment or pass to constructor."
+                "GOOGLE_AI_API_KEY not set. Set via environment or pass to constructor."
             )
 
     @retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10)
@@ -40,7 +39,7 @@ class GoogleProvider(Provider):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ProviderResponse:
         """
         Synchronous Google Gemini completion.
@@ -57,12 +56,12 @@ class GoogleProvider(Provider):
             ProviderResponse with completion and usage
         """
         import importlib.util
+
         if importlib.util.find_spec("google.genai") is None:
-            raise ProviderError(
-                "google-genai package not installed. Run: pip install google-genai"
-            )
+            raise ProviderError("google-genai package not installed. Run: pip install google-genai")
 
         from google import genai
+
         client = genai.Client(api_key=self.api_key)
 
         # Gemini combines system and user prompts
@@ -90,7 +89,7 @@ class GoogleProvider(Provider):
             # Extract usage info
             input_tokens = 0
             output_tokens = 0
-            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
                 input_tokens = response.usage_metadata.prompt_token_count
                 output_tokens = response.usage_metadata.candidates_token_count
 
@@ -116,7 +115,7 @@ class GoogleProvider(Provider):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ProviderResponse:
         """
         Asynchronous Google Gemini completion.
@@ -133,10 +132,9 @@ class GoogleProvider(Provider):
             ProviderResponse with completion and usage
         """
         import importlib.util
+
         if importlib.util.find_spec("google.genai") is None:
-            raise ProviderError(
-                "google-genai package not installed. Run: pip install google-genai"
-            )
+            raise ProviderError("google-genai package not installed. Run: pip install google-genai")
 
         # Note: google-genai doesn't have native async support yet
         # We'll use the sync method for now and wrap it if needed
@@ -153,3 +151,17 @@ class GoogleProvider(Provider):
             "pricing": pricing,
             "context_window": 1000000,  # 1M tokens for Gemini models
         }
+
+    def validate_key(self) -> tuple[bool, str]:
+        """Validate the Google AI API key."""
+        try:
+            from google import genai
+
+            client = genai.Client(api_key=self.api_key)
+            client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents="Hi",
+            )
+            return True, "Valid"
+        except Exception as e:
+            return False, str(e)

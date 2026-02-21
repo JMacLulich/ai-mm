@@ -28,8 +28,7 @@ class OpenAIProvider(Provider):
 
         if not self.api_key:
             raise ProviderError(
-                "OPENAI_API_KEY not set. "
-                "Set via environment or pass to constructor."
+                "OPENAI_API_KEY not set. Set via environment or pass to constructor."
             )
 
     @retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10)
@@ -40,7 +39,7 @@ class OpenAIProvider(Provider):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ProviderResponse:
         """
         Synchronous OpenAI completion.
@@ -59,9 +58,7 @@ class OpenAIProvider(Provider):
         try:
             from openai import OpenAI
         except ImportError:
-            raise ProviderError(
-                "openai package not installed. Run: pip install openai"
-            )
+            raise ProviderError("openai package not installed. Run: pip install openai")
 
         client = OpenAI(api_key=self.api_key)
 
@@ -74,7 +71,7 @@ class OpenAIProvider(Provider):
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
             }
 
@@ -114,7 +111,7 @@ class OpenAIProvider(Provider):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ProviderResponse:
         """
         Asynchronous OpenAI completion.
@@ -133,9 +130,7 @@ class OpenAIProvider(Provider):
         try:
             from openai import AsyncOpenAI
         except ImportError:
-            raise ProviderError(
-                "openai package not installed. Run: pip install openai"
-            )
+            raise ProviderError("openai package not installed. Run: pip install openai")
 
         client = AsyncOpenAI(api_key=self.api_key)
 
@@ -148,7 +143,7 @@ class OpenAIProvider(Provider):
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
             }
 
@@ -191,3 +186,18 @@ class OpenAIProvider(Provider):
             "pricing": pricing,
             "context_window": 128000 if model.startswith("gpt-5") else 8192,
         }
+
+    def validate_key(self) -> tuple[bool, str]:
+        """Validate the OpenAI API key."""
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=self.api_key)
+            client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5,
+            )
+            return True, "Valid"
+        except Exception as e:
+            return False, str(e)

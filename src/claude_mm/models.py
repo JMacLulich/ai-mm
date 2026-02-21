@@ -8,7 +8,7 @@ This is the single source of truth for:
 - Model characteristics (speed, cost tier, etc.)
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # ============================================================================
 # Model Registry
@@ -34,13 +34,16 @@ OPENAI_ALIASES = {
 
 # Google Gemini Models
 GEMINI_MODELS = {
+    "gemini-3-pro-preview": "gemini-3-pro-preview",  # Latest Pro - biggest model
+    "gemini-2.5-pro": "gemini-2.5-pro",  # Stable Pro
     "gemini-3-flash-preview": "gemini-3-flash-preview",  # Fast, cheap
     "gemini-2.0-flash-exp": "gemini-2.0-flash-exp",  # Experimental
-    "gemini-pro": "gemini-pro",  # Standard
 }
 
 GEMINI_ALIASES = {
-    "gemini": "gemini-3-flash-preview",  # Default to fast/cheap
+    "gemini": "gemini-3-pro-preview",  # Default to biggest model for reviews
+    "gemini-pro": "gemini-2.5-pro",  # Stable pro
+    "gemini-flash": "gemini-3-flash-preview",
 }
 
 # Anthropic Claude Models
@@ -54,6 +57,29 @@ CLAUDE_ALIASES = {
     "claude": "claude-sonnet-4-5-20250929",  # Default to latest Sonnet
     "opus": "claude-opus-4-5-20251101",  # Opus alias
     "haiku": "claude-haiku-4-5-20251001",
+}
+
+# Ollama Models (local)
+OLLAMA_MODELS = {
+    "qwen2.5:14b-instruct": "qwen2.5:14b-instruct",  # Good balance
+    "qwen2.5:7b-instruct": "qwen2.5:7b-instruct",  # Faster
+    "llama3:latest": "llama3:latest",  # Meta Llama 3
+}
+
+OLLAMA_ALIASES = {
+    "ollama": "qwen2.5:14b-instruct",  # Default
+    "qwen": "qwen2.5:14b-instruct",
+    "llama": "llama3:latest",
+}
+
+# Model groups for multi-model reviews
+MODEL_GROUPS = {
+    "mm": ["gpt-5.2", "gemini", "claude-opus-4-5-20251101"],  # Premium multi-model
+    "fast": [
+        "gpt-5.2-chat-latest",
+        "gemini-3-flash-preview",
+        "claude-haiku-4-5-20251001",
+    ],  # Fast models
 }
 
 
@@ -70,7 +96,7 @@ def get_provider_for_model(model: str) -> Optional[str]:
         model: Model name (can be alias or API name)
 
     Returns:
-        Provider name ("openai", "google", "anthropic") or None if unknown
+        Provider name ("openai", "google", "anthropic", "ollama") or None if unknown
     """
     # Check OpenAI
     if model in OPENAI_MODELS or model in OPENAI_ALIASES:
@@ -83,6 +109,10 @@ def get_provider_for_model(model: str) -> Optional[str]:
     # Check Claude
     if model in CLAUDE_MODELS or model in CLAUDE_ALIASES:
         return "anthropic"
+
+    # Check Ollama
+    if model in OLLAMA_MODELS or model in OLLAMA_ALIASES:
+        return "ollama"
 
     return None
 
@@ -106,7 +136,9 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
         >>> normalize_model_name("gpt-5.2-instant")
         ("openai", "gpt-5.2-chat-latest")
         >>> normalize_model_name("gemini")
-        ("google", "gemini-3-flash-preview")
+        ("google", "gemini-3-pro-preview")
+        >>> normalize_model_name("ollama")
+        ("ollama", "qwen2.5:14b-instruct")
     """
     # Try OpenAI
     if model in OPENAI_MODELS:
@@ -125,6 +157,12 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
         return "anthropic", CLAUDE_MODELS[model]
     if model in CLAUDE_ALIASES:
         return "anthropic", CLAUDE_MODELS[CLAUDE_ALIASES[model]]
+
+    # Try Ollama
+    if model in OLLAMA_MODELS:
+        return "ollama", OLLAMA_MODELS[model]
+    if model in OLLAMA_ALIASES:
+        return "ollama", OLLAMA_MODELS[OLLAMA_ALIASES[model]]
 
     raise ValueError(f"Unknown model: {model}")
 
@@ -147,19 +185,24 @@ def get_model_display_name(api_model: str) -> str:
         "gpt-4o": "GPT-4o",
         "gpt-4": "GPT-4",
         # Gemini
+        "gemini-3-pro-preview": "Gemini 3 Pro",
+        "gemini-2.5-pro": "Gemini 2.5 Pro",
         "gemini-3-flash-preview": "Gemini 3 Flash",
         "gemini-2.0-flash-exp": "Gemini 2.0 Flash (Experimental)",
-        "gemini-pro": "Gemini Pro",
         # Claude
         "claude-opus-4-5-20251101": "Claude Opus 4.5",
         "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
         "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+        # Ollama
+        "qwen2.5:14b-instruct": "Qwen 2.5 14B (Local)",
+        "qwen2.5:7b-instruct": "Qwen 2.5 7B (Local)",
+        "llama3:latest": "Llama 3 (Local)",
     }
 
     return display_names.get(api_model, api_model)
 
 
-def get_model_characteristics(api_model: str) -> Dict[str, any]:
+def get_model_characteristics(api_model: str) -> Dict[str, Any]:
     """
     Get model characteristics (speed, cost tier, context window, etc.).
 
@@ -203,6 +246,18 @@ def get_model_characteristics(api_model: str) -> Dict[str, any]:
             "description": "Legacy GPT-4 model",
         },
         # Gemini
+        "gemini-3-pro-preview": {
+            "speed": "medium",
+            "cost_tier": "medium",
+            "context_window": 1000000,
+            "description": "Latest Gemini 3 Pro - biggest model",
+        },
+        "gemini-2.5-pro": {
+            "speed": "medium",
+            "cost_tier": "medium",
+            "context_window": 1000000,
+            "description": "Stable Gemini 2.5 Pro",
+        },
         "gemini-3-flash-preview": {
             "speed": "fast",
             "cost_tier": "low",
@@ -214,12 +269,6 @@ def get_model_characteristics(api_model: str) -> Dict[str, any]:
             "cost_tier": "low",
             "context_window": 1000000,
             "description": "Experimental Gemini 2.0",
-        },
-        "gemini-pro": {
-            "speed": "medium",
-            "cost_tier": "low",
-            "context_window": 1000000,
-            "description": "Standard Gemini model",
         },
         # Claude
         "claude-opus-4-5-20251101": {
@@ -239,6 +288,25 @@ def get_model_characteristics(api_model: str) -> Dict[str, any]:
             "cost_tier": "low",
             "context_window": 200000,
             "description": "Fastest model with near-frontier intelligence",
+        },
+        # Ollama
+        "qwen2.5:14b-instruct": {
+            "speed": "medium",
+            "cost_tier": "free",
+            "context_window": 128000,
+            "description": "Local Qwen 2.5 14B - good balance",
+        },
+        "qwen2.5:7b-instruct": {
+            "speed": "fast",
+            "cost_tier": "free",
+            "context_window": 128000,
+            "description": "Local Qwen 2.5 7B - faster",
+        },
+        "llama3:latest": {
+            "speed": "medium",
+            "cost_tier": "free",
+            "context_window": 8192,
+            "description": "Local Llama 3",
         },
     }
 
@@ -264,6 +332,7 @@ def list_all_models() -> Dict[str, list]:
         "openai": list(OPENAI_MODELS.keys()),
         "google": list(GEMINI_MODELS.keys()),
         "anthropic": list(CLAUDE_MODELS.keys()),
+        "ollama": list(OLLAMA_MODELS.keys()),
     }
 
 
@@ -278,6 +347,7 @@ def list_all_aliases() -> Dict[str, str]:
     all_aliases.update(OPENAI_ALIASES)
     all_aliases.update(GEMINI_ALIASES)
     all_aliases.update(CLAUDE_ALIASES)
+    all_aliases.update(OLLAMA_ALIASES)
     return all_aliases
 
 

@@ -138,6 +138,10 @@ class TestNormalizeModelName:
         """Gemini aliases resolve to API names."""
         provider, model = normalize_model_name("gemini")
         assert provider == "google"
+        assert model == "gemini-3-pro-preview"
+
+        provider, model = normalize_model_name("gemini-flash")
+        assert provider == "google"
         assert model == "gemini-3-flash-preview"
 
     def test_claude_direct_models(self):

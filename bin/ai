@@ -47,12 +47,14 @@ def load_env_file(env_path):
 # Load from repo .env first (highest priority)
 load_env_file(ROOT / ".env")
 # Load from user config
-load_env_file(Path.home() / ".config" / "claude-mm-tool" / "env")
+load_env_file(Path.home() / ".config" / "ai-mm" / "env")
 
 # Import API and utilities
 from claude_mm.api import plan, review  # noqa: E402
 from claude_mm.cache import clear_cache, get_cache_stats  # noqa: E402
 from claude_mm.config import load_config  # noqa: E402
+from claude_mm.config_tui import run_config_tui  # noqa: E402
+from claude_mm.models import MODEL_GROUPS  # noqa: E402
 from claude_mm.usage import get_usage_stats  # noqa: E402
 
 
@@ -70,20 +72,20 @@ def cmd_review(args):
         print("Error: Empty input", file=sys.stderr)
         sys.exit(1)
 
-    # Handle multimode (mm)
+    # Handle multimode (mm) and fast groups
     if args.model == "mm":
-        models = ["gpt-5.2-chat-latest", "gemini", "claude-opus-4-5-20251101"]
+        models = MODEL_GROUPS["mm"]
         print(
-            "🔍 Running multimode review with GPT + Gemini + Claude Opus 4.5 in parallel...",
+            "🔍 Running multimode review with GPT-5.2 + Gemini 3 Pro + Claude Opus 4.5 in parallel...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":
             print(f"📊 Focus: {args.focus}", file=sys.stderr)
         print(file=sys.stderr)
-    elif args.model == "all":
-        models = ["gpt-5.2-chat-latest", "gemini", "claude-haiku-4-5-20251001"]
+    elif args.model == "all" or args.model == "fast":
+        models = MODEL_GROUPS["fast"]
         print(
-            "🔍 Running review with all 3 fast models (GPT + Gemini + Haiku 4.5) in parallel...",
+            "🔍 Running review with all 3 fast models (GPT Instant + Gemini Flash + Haiku 4.5) in parallel...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":
@@ -246,6 +248,19 @@ def cmd_usage(args):
         print(f"\n✓ Exported to {args.export}")
 
 
+def cmd_config(args):
+    """Handle config command - interactive API key management."""
+    try:
+        saved = run_config_tui()
+        if saved:
+            sys.exit(0)
+        else:
+            sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     """Main CLI entry point."""
     # Load config (available for future extension)
@@ -304,6 +319,9 @@ def main():
     usage_parser.add_argument("--month", action="store_true", help="This month's usage")
     usage_parser.add_argument("--export", help="Export to CSV file")
 
+    # Config command
+    subparsers.add_parser("config", help="Interactive API key configuration")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -321,6 +339,8 @@ def main():
         cmd_cache(args)
     elif args.command == "usage":
         cmd_usage(args)
+    elif args.command == "config":
+        cmd_config(args)
     else:
         parser.print_help()
         sys.exit(1)

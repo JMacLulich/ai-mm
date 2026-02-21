@@ -71,8 +71,8 @@ main() {
     # Install dependencies
     echo "📚 Installing dependencies..."
     "$venv_dir/bin/pip" install -q --upgrade pip
-    "$venv_dir/bin/pip" install -q -e "$ROOT"
-    "$venv_dir/bin/pip" install -q -e "$ROOT[dev]"
+    "$venv_dir/bin/pip" install -q --upgrade -e "$ROOT"
+    "$venv_dir/bin/pip" install -q --upgrade -e "$ROOT[dev]"
 
     # Copy ai script to ~/.local/bin with venv shebang
     echo "🔧 Installing ai command..."
@@ -105,50 +105,51 @@ main() {
     fi
 
     # Check API keys
-    local config_dir="$HOME/.config/claude-mm-tool"
+    local config_dir="$HOME/.config/ai-mm"
     local env_file="$config_dir/env"
+
+    # Migrate old configs if new config doesn't exist or is empty
+    local old_config="$HOME/.config/claude-mm-tool/env"
+    local system_config="$HOME/.config/system-playbooks/env"
+    
+    if [[ ! -f "$env_file" ]] && [[ -f "$old_config" ]]; then
+        mkdir -p "$config_dir"
+        cp "$old_config" "$env_file"
+        chmod 600 "$env_file"
+        echo "✓ Migrated config from ~/.config/claude-mm-tool to ~/.config/ai-mm"
+    elif [[ ! -f "$env_file" ]] && [[ -f "$system_config" ]]; then
+        mkdir -p "$config_dir"
+        # Extract relevant keys from system-playbooks
+        grep -E "^(export )?(OPENAI|GOOGLE|ANTHROPIC)_API_KEY" "$system_config" 2>/dev/null > "$env_file" || true
+        if [[ -s "$env_file" ]]; then
+            chmod 600 "$env_file"
+            echo "✓ Migrated config from ~/.config/system-playbooks to ~/.config/ai-mm"
+        fi
+    fi
 
     mkdir -p "$config_dir"
 
-    # Always check for missing keys
+    # If env file exists with real keys, don't touch it
+    if [[ -f "$env_file" ]] && grep -qE "sk-(proj-)?[A-Za-z0-9]{10,}" "$env_file" 2>/dev/null; then
+        echo ""
+        echo "⚙️  API keys configured at: $env_file"
+        echo "   Run 'ai config' to manage keys"
+        echo ""
+        return 0
+    fi
+
+    # Only prompt for keys if file doesn't exist
     echo ""
     echo "⚙️  Checking API keys..."
 
-    # Parse existing keys if file exists
-    local existing_openai=""
-    local existing_google=""
-    local existing_anthropic=""
-
-    if [[ -f "$env_file" ]]; then
-        existing_openai=$(grep "OPENAI_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
-        existing_google=$(grep "GOOGLE_AI_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
-        existing_anthropic=$(grep "ANTHROPIC_API_KEY" "$env_file" 2>/dev/null | cut -d'"' -f2 || true)
-    fi
+    local openai_key=""
+    local google_key=""
+    local anthropic_key=""
 
     echo ""
-
-    # Prompt for each key if missing
-    local openai_key="$existing_openai"
-    local google_key="$existing_google"
-    local anthropic_key="$existing_anthropic"
-
-    if [[ -z "$existing_openai" ]]; then
-        read -p "Enter your OpenAI API key (or press Enter to skip): " openai_key
-    else
-        echo "✓ OpenAI API key already configured"
-    fi
-
-    if [[ -z "$existing_google" ]]; then
-        read -p "Enter your Google AI API key (or press Enter to skip): " google_key
-    else
-        echo "✓ Google AI API key already configured"
-    fi
-
-    if [[ -z "$existing_anthropic" ]]; then
-        read -p "Enter your Anthropic API key (optional, press Enter to skip): " anthropic_key
-    else
-        echo "✓ Anthropic API key already configured"
-    fi
+    read -p "Enter your OpenAI API key (or press Enter to skip): " openai_key
+    read -p "Enter your Google AI API key (or press Enter to skip): " google_key
+    read -p "Enter your Anthropic API key (optional, press Enter to skip): " anthropic_key
 
     # Write env file if we have at least one key
     if [[ -n "$openai_key" || -n "$google_key" || -n "$anthropic_key" ]]; then
@@ -165,18 +166,9 @@ main() {
         chmod 600 "$env_file"
         echo ""
         echo "✓ API keys saved to $env_file"
-    elif [[ -f "$env_file" ]]; then
-        echo ""
-        echo "✓ All API keys already configured at $env_file"
     else
         echo ""
-        echo "⚠️  No API keys configured. You can add them later to:"
-        echo "   $env_file"
-        echo ""
-        echo "   Format:"
-        echo "   export OPENAI_API_KEY=\"sk-...\""
-        echo "   export GOOGLE_AI_API_KEY=\"...\""
-        echo "   export ANTHROPIC_API_KEY=\"sk-ant-...\"  # optional"
+        echo "⚠️  No API keys configured. Run 'ai config' to add them."
     fi
 
     echo ""
