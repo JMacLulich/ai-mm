@@ -1,8 +1,8 @@
 """
-Interactive TUI for managing API keys.
+Interactive TUI for managing provider configuration.
 
 Provides a nice interface similar to occtl's session manager for configuring
-API keys for different AI providers.
+API keys and local endpoint settings for different AI providers.
 """
 
 from __future__ import annotations
@@ -20,14 +20,14 @@ PROVIDERS = [
     ("openai", "OPENAI_API_KEY", "GPT-5.2 (reviews)", "sk-"),
     ("google", "GOOGLE_AI_API_KEY", "Gemini 3.1 Pro (reviews)", None),
     ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
-    ("ollama", None, "Local LLM (no key needed)", None),
+    ("ollama", "OLLAMA_BASE_URL", "Local LLM endpoint URL", "http(s)://..."),
 ]
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def _test_api_key(provider: str, api_key: str) -> tuple[bool, str]:
-    """Test an API key by making a minimal API call.
+def _test_api_key(provider: str, value: str) -> tuple[bool, str]:
+    """Test a provider configuration value by making a minimal API call.
 
     Returns:
         Tuple of (success, message)
@@ -36,7 +36,7 @@ def _test_api_key(provider: str, api_key: str) -> tuple[bool, str]:
         if provider == "openai":
             from openai import OpenAI
 
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(api_key=value)
             client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": "Hi"}],
@@ -47,7 +47,7 @@ def _test_api_key(provider: str, api_key: str) -> tuple[bool, str]:
         elif provider == "google":
             from google import genai
 
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=value)
             client.models.generate_content(
                 model="gemini-3.1-pro-preview",
                 contents="Hi",
@@ -57,7 +57,7 @@ def _test_api_key(provider: str, api_key: str) -> tuple[bool, str]:
         elif provider == "anthropic":
             from anthropic import Anthropic
 
-            client = Anthropic(api_key=api_key)
+            client = Anthropic(api_key=value)
             client.messages.create(
                 model="claude-opus-4-6",
                 max_tokens=5,
@@ -68,7 +68,10 @@ def _test_api_key(provider: str, api_key: str) -> tuple[bool, str]:
         elif provider == "ollama":
             import urllib.request
 
-            req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+            if not value:
+                return False, "OLLAMA_BASE_URL not configured"
+            base_url = value.rstrip("/")
+            req = urllib.request.Request(f"{base_url}/api/tags", method="GET")
             with urllib.request.urlopen(req, timeout=2) as resp:
                 if resp.status == 200:
                     return True, "Running"
@@ -156,8 +159,12 @@ def _read_menu_key() -> str:
     return "other"
 
 
-def _prompt_for_key(
-    provider: str, env_key: str, description: str, prefix: str | None
+def _prompt_for_value(
+    provider: str,
+    env_key: str,
+    description: str,
+    prefix: str | None,
+    current_value: str = "",
 ) -> str | None:
     print("\033[2J\033[H", end="")
 
@@ -165,14 +172,20 @@ def _prompt_for_key(
     inner = cols - 4
 
     print(_menu_border(inner))
-    print(_menu_row(f" ADD API KEY: {provider.upper()} ", inner))
+    print(_menu_row(f" SET CONFIG VALUE: {provider.upper()} ", inner))
     print(_menu_border(inner))
     print(_menu_row(f" Service: {description} ", inner))
+    if current_value:
+        print(_menu_row(f" Current value: {current_value} ", inner))
+    suggested_value = ""
+    if env_key == "OLLAMA_BASE_URL" and not current_value:
+        suggested_value = "http://localhost:11434"
+        print(_menu_row(f" Suggested value: {suggested_value} ", inner))
     if prefix:
         print(_menu_row(f" Expected prefix: {prefix} ", inner))
     print(_menu_border(inner))
     print(_menu_row("", inner))
-    print(_menu_row(" Enter API key: ", inner))
+    print(_menu_row(f" Enter value for {env_key}: ", inner))
     input_row = 8
     print(_menu_row("", inner))
     print(_menu_border(inner))
@@ -180,12 +193,19 @@ def _prompt_for_key(
     print(_menu_border(inner))
 
     key_input: list[str] = []
+    obscure_input = env_key != "OLLAMA_BASE_URL"
 
     while True:
         if key_input:
-            masked = "*" * min(len(key_input), 20) + ("..." if len(key_input) > 20 else "")
+            if obscure_input:
+                masked = "*" * min(len(key_input), 20) + ("..." if len(key_input) > 20 else "")
+            else:
+                masked = "".join(key_input)
         else:
-            masked = "(typing...)"
+            if suggested_value:
+                masked = f"(press Enter to use {suggested_value})"
+            else:
+                masked = "(typing...)"
         sys.stdout.write(f"\033[{input_row};3H")
         sys.stdout.write(f"  {masked}" + " " * (inner - len(masked) - 4) + "  ")
         sys.stdout.flush()
@@ -202,7 +222,11 @@ def _prompt_for_key(
         elif ch.isprintable():
             key_input.append(ch)
 
-    return "".join(key_input) if key_input else None
+    if key_input:
+        return "".join(key_input)
+    if env_key == "OLLAMA_BASE_URL" and suggested_value:
+        return suggested_value
+    return None
 
 
 def _build_menu_rows(
@@ -222,7 +246,7 @@ def _build_menu_rows(
                 "prefix": prefix,
                 "has_key": has_key,
                 "is_local": is_local,
-                "masked": "(local)"
+                "masked": (keys.get(env_key, "") if is_local and has_key else "(not set)")
                 if is_local
                 else (mask_key(keys.get(env_key, "")) if has_key else "(not set)"),
                 "is_exit": False,
@@ -301,7 +325,10 @@ def _render_menu(
         provider_name = _fit_text(row["provider"].upper(), name_w)
 
         if row.get("is_local"):
-            base_status = "local (no key needed)"
+            if row["has_key"]:
+                base_status = f"url: {row['masked']}"
+            else:
+                base_status = "url not configured"
             if row["test_status"]:
                 success, _msg = row["test_status"]
                 if success:
@@ -310,7 +337,7 @@ def _render_menu(
                     test_str = _colorize("[OFF]", "31")
                 status = f"{base_status} {test_str}"
             else:
-                status = _colorize(base_status, "36")
+                status = _colorize(base_status, "33" if not row["has_key"] else "36")
         elif row["has_key"]:
             base_status = f"✓ {row['masked']}"
             if row["test_status"]:
@@ -340,7 +367,7 @@ def _render_menu(
     elif selected.get("is_cancel"):
         footer = " Discard changes and exit "
     else:
-        footer = f" {selected['description']} | t: test key "
+        footer = f" {selected['description']} | t: test config "
     print(_menu_row(footer, inner))
 
     if last_error:
@@ -410,17 +437,16 @@ def run_config_tui() -> bool:
                         print()
                     return False
                 else:
-                    if row.get("is_local"):
-                        last_error = "Local providers don't need a key. Press 't' to test."
-                    elif row["env_key"]:
-                        new_key = _prompt_for_key(
+                    if row["env_key"]:
+                        new_value = _prompt_for_value(
                             row["provider"],
                             row["env_key"],
                             row["description"],
                             row["prefix"],
+                            keys.get(row["env_key"], ""),
                         )
-                        if new_key is not None:
-                            keys[row["env_key"]] = new_key
+                        if new_value is not None:
+                            keys[row["env_key"]] = new_value
                             if row["provider"] in test_results:
                                 del test_results[row["provider"]]
                             rows = _build_menu_rows(keys, test_results)
@@ -429,10 +455,7 @@ def run_config_tui() -> bool:
                 if not rows[idx]["is_exit"] and not rows[idx].get("is_cancel"):
                     row = rows[idx]
                     _show_testing_screen(row["provider"])
-                    if row.get("is_local"):
-                        success, msg = _test_api_key(row["provider"], "")
-                    else:
-                        success, msg = _test_api_key(row["provider"], keys.get(row["env_key"], ""))
+                    success, msg = _test_api_key(row["provider"], keys.get(row["env_key"], ""))
                     test_results[row["provider"]] = (success, msg)
                     rows = _build_menu_rows(keys, test_results)
                     if not success:
@@ -444,7 +467,6 @@ def run_config_tui() -> bool:
                     not rows[idx]["is_exit"]
                     and not rows[idx].get("is_cancel")
                     and rows[idx]["has_key"]
-                    and not rows[idx].get("is_local")
                 ):
                     del keys[rows[idx]["env_key"]]
                     if rows[idx]["provider"] in test_results:

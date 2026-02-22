@@ -1,11 +1,15 @@
 """Tests for config_tui module."""
 
+import io
+import sys
+
 from claude_mm.config_tui import (
     _build_menu_rows,
     _colorize,
     _fit_text,
     _menu_border,
     _menu_row,
+    _prompt_for_value,
     _supports_color,
     load_existing_keys,
     mask_key,
@@ -151,6 +155,28 @@ class TestBuildMenuRows:
         rows = _build_menu_rows(keys)
         openai_row = next(r for r in rows if r["provider"] == "openai")
         assert "sk-proj-...abcd" in openai_row["masked"]
+
+    def test_ollama_url_not_masked(self):
+        keys = {"OLLAMA_BASE_URL": "http://localhost:11434"}
+        rows = _build_menu_rows(keys)
+        ollama_row = next(r for r in rows if r["provider"] == "ollama")
+        assert ollama_row["masked"] == "http://localhost:11434"
+
+
+class TestPromptForValue:
+    def test_ollama_prompt_suggests_localhost_default(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
+        monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+        value = _prompt_for_value(
+            provider="ollama",
+            env_key="OLLAMA_BASE_URL",
+            description="Local LLM endpoint URL",
+            prefix="http(s)://...",
+            current_value="",
+        )
+
+        assert value == "http://localhost:11434"
 
 
 class TestSaveAndLoadKeys:

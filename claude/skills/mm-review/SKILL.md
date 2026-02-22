@@ -26,6 +26,7 @@ Use this skill when user says:
 
 - `ai-mm` must be installed at `~/dev/ai-mm` or `~/../ai-mm`
 - API keys configured in `~/.config/ai-mm/env`
+- Local endpoint configured: `export OLLAMA_BASE_URL="http://localhost:11434"`
 
 ## Instructions
 
@@ -298,6 +299,9 @@ You can also use specific models:
 
 **"Error: OPENAI_API_KEY not set"**
 → API keys not configured. User needs to create `~/.config/ai-mm/env`
+
+**"OLLAMA_BASE_URL not set"**
+→ Configure local endpoint in `ai config` (suggested: `http://localhost:11434`).
 
 **"No changes to review"**
 → Ask user what they want to review (specific files, branch diff, etc.)

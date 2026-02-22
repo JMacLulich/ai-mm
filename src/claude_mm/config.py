@@ -15,10 +15,17 @@ DEFAULT_CONFIG = {
     },
     "cost_warning_threshold": 0.10,
     "cache_ttl_hours": 24,
+    "planning": {
+        "depth": "standard",
+        "rounds": 2,
+        "context_mode": "none",
+        "strict": False,
+        "confidence_threshold": 0.72,
+    },
 }
 
 
-def load_config(config_path: Path = None):
+def load_config(config_path: Path | None = None):
     """
     Load user configuration from file or use defaults.
 
@@ -36,6 +43,7 @@ def load_config(config_path: Path = None):
 
     try:
         import yaml
+
         with open(config_path) as f:
             user_config = yaml.safe_load(f) or {}
         # Merge with defaults

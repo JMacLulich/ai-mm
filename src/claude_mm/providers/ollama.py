@@ -1,8 +1,10 @@
 """Ollama (local LLM) provider implementation."""
 
 import json
+import os
 import urllib.error
 import urllib.request
+from decimal import Decimal
 from typing import Optional
 
 from claude_mm.pricing import get_model_pricing
@@ -14,19 +16,24 @@ from .base import Provider, ProviderError, ProviderResponse
 class OllamaProvider(Provider):
     """Provider for local Ollama models."""
 
-    def __init__(
-        self, api_key: Optional[str] = None, base_url: str = "http://localhost:11434", **kwargs
-    ):
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
         """
         Initialize Ollama provider.
 
         Args:
             api_key: Not used for Ollama (local)
-            base_url: Ollama API URL (default: http://localhost:11434)
+            base_url: Ollama API URL (defaults to OLLAMA_BASE_URL env var)
             **kwargs: Additional configuration
         """
         super().__init__(api_key, **kwargs)
-        self.base_url = base_url.rstrip("/")
+
+        resolved_base_url = base_url or os.getenv("OLLAMA_BASE_URL")
+        if not resolved_base_url:
+            raise ProviderError(
+                "OLLAMA_BASE_URL not set. Configure it via 'ai config' or export OLLAMA_BASE_URL."
+            )
+
+        self.base_url = resolved_base_url.rstrip("/")
 
     def _is_available(self) -> bool:
         """Check if Ollama server is running."""
@@ -108,7 +115,7 @@ class OllamaProvider(Provider):
                 model=model,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
-                cost=0.0,
+                cost=Decimal("0"),
                 cached=False,
             )
 

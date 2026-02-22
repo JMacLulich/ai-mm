@@ -4,13 +4,21 @@ description: Multi-model AI tooling for planning, code review, and stabilization
 
 commands:
   - name: plan
-    description: Generate implementation plans using AI models
+    description: Generate extensive implementation plans using AI models
     flags:
       --model=: AI model to use
+      --depth=: Planning depth preset
+      --rounds=: Critique/revision rounds
+      --output-format=: Output format
+      --strict: Enforce strict planning gate
+      --confidence-threshold=: Minimum confidence for strict mode
+      --context=: Include repository context
+      --include-files=: Extra context files (comma-separated)
       --no-cache: Bypass response cache
     completion:
       flag:
         model:
+          - "mm\tMulti-model planning synthesis (GPT + Gemini + Claude)\tmagenta"
           - "gpt-5.2\tGPT-5.2 Chat Latest ($1.75/$14 per 1M)\tgreen"
           - "gpt-5.2-chat-latest\tGPT-5.2 Instant - fast ($0.40/$1.60 per 1M)\tcyan"
           - "gpt-5.2-pro\tGPT-5.2 Pro - expensive ($8.75/$70 per 1M)\tred"
@@ -18,6 +26,15 @@ commands:
           - "gemini-pro\tGemini 3 Pro Preview\tmagenta"
           - "claude\tClaude Sonnet 4.5 (claude-sonnet-4-5-20250929)\tyellow"
           - "opus\tClaude Opus 4.5 (claude-opus-4-5-20251101)\tred"
+        depth:
+          - "standard\tBalanced depth and cost\tgreen"
+          - "deep\tMaximum depth and safeguards\tyellow"
+        output-format:
+          - "markdown\tHuman-readable plan\tgreen"
+          - "json\tStructured plan payload\tblue"
+        context:
+          - "none\tNo repository context\tdim"
+          - "auto\tAuto-include key project files\tcyan"
 
   - name: review
     description: Review code changes (pipe git diff output)
@@ -47,6 +64,7 @@ commands:
     flags:
       --rounds=: Number of critique/revise rounds
       --mode=: Specialized planning mode
+      --no-cache: Bypass response cache
     completion:
       flag:
         rounds:

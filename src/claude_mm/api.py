@@ -23,11 +23,12 @@ Example usage:
 
 import asyncio
 from decimal import Decimal
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from claude_mm.cache import cache_response, get_cached_response
 from claude_mm.config import load_config
 from claude_mm.models import normalize_model_name
+from claude_mm.planning import DEFAULT_CONFIDENCE_THRESHOLD, generate_plan_output
 from claude_mm.providers import get_provider
 from claude_mm.providers.base import ProviderResponse
 from claude_mm.usage import log_api_call
@@ -43,6 +44,7 @@ class ReviewResult:
         self.output_tokens = response.output_tokens
         self.cost = response.cost
         self.cached = cached
+        self.metadata = response.metadata or {}
 
     def __str__(self):
         return self.text
@@ -236,6 +238,13 @@ def plan(
     model: Optional[str] = None,
     use_cache: bool = True,
     cache_ttl: Optional[int] = None,
+    depth: str = "standard",
+    rounds: int = 2,
+    output_format: str = "markdown",
+    strict: bool = False,
+    context_mode: str = "none",
+    include_files: Optional[List[str]] = None,
+    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
 ) -> ReviewResult:
     """
     Generate an implementation plan.
@@ -245,6 +254,13 @@ def plan(
         model: Model to use (defaults to configured plan model)
         use_cache: Whether to use cached responses
         cache_ttl: Cache TTL in hours (overrides default)
+        depth: Planning depth preset ('standard' or 'deep')
+        rounds: Number of critique/revision rounds
+        output_format: Output format ('markdown' or 'json')
+        strict: If True, fail when blocking questions or low confidence exist
+        context_mode: Context mode ('none' or 'auto')
+        include_files: Optional additional files to include in planning context
+        confidence_threshold: Minimum confidence when strict mode is enabled
 
     Returns:
         ReviewResult with the plan
@@ -255,25 +271,34 @@ def plan(
     """
     config = load_config()
 
-    if not model:
-        model = config.get("default_models", {}).get("plan", "gpt-5.2")
+    selected_model = model or config.get("default_models", {}).get("plan", "gpt-5.2")
+    selected_model = str(selected_model)
 
-    system_prompt = """You are an expert software architect and planner.
-Create a detailed, step-by-step implementation plan.
-Include:
-- Summary of the goal
-- Key assumptions
-- Architecture decisions
-- Implementation steps
-- Potential risks
-"""
-
-    return _review_single(
+    plan_output = generate_plan_output(
         goal,
-        model,
-        system_prompt,
-        use_cache,
-        cache_ttl or config.get("cache_ttl_hours", 24),
+        selected_model,
+        depth=depth,
+        rounds=rounds,
+        output_format=output_format,
+        strict=strict,
+        context_mode=context_mode,
+        include_files=include_files,
+        use_cache=use_cache,
+        cache_ttl=cache_ttl or config.get("cache_ttl_hours", 24),
+        confidence_threshold=confidence_threshold,
+    )
+
+    return ReviewResult(
+        ProviderResponse(
+            text=plan_output.text,
+            model=plan_output.model,
+            input_tokens=plan_output.input_tokens,
+            output_tokens=plan_output.output_tokens,
+            cost=plan_output.cost,
+            cached=plan_output.cached,
+            metadata=plan_output.metadata,
+        ),
+        cached=plan_output.cached,
     )
 
 
@@ -282,7 +307,7 @@ def stabilize(
     rounds: int = 2,
     mode: Optional[str] = None,
     use_cache: bool = True,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Multi-round plan stabilization with critique and revision.
 
@@ -303,11 +328,28 @@ def stabilize(
         >>> print(result['final_plan'].text)
         >>> print(f"Total cost: ${result['total_cost']:.4f}")
     """
-    # This is a simplified version - full implementation would include
-    # the multi-round critique loop from the current bin/ai stabilize
-    raise NotImplementedError(
-        "Stabilize API implementation in progress. Use CLI for now: ai stabilize"
+    context_mode = "auto" if mode in {"migrations", "docs", "infra"} else "none"
+    plan_result = plan(
+        goal=goal,
+        model=None,
+        use_cache=use_cache,
+        cache_ttl=None,
+        depth="deep",
+        rounds=rounds,
+        output_format="markdown",
+        strict=False,
+        context_mode=context_mode,
+        include_files=None,
+        confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
     )
+
+    return {
+        "final_plan": plan_result,
+        "rounds": rounds,
+        "mode": mode,
+        "total_cost": float(plan_result.cost or Decimal("0")),
+        "metadata": plan_result.metadata,
+    }
 
 
 # Async API variants

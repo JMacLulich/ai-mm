@@ -36,7 +36,7 @@ ai config  # Interactive TUI for managing keys
 - **OpenAI** - GPT-5.2 models
 - **Google** - Gemini 3 Pro
 - **Anthropic** - Claude Opus 4.5
-- **Ollama** - Local LLMs (no key needed)
+- **Ollama** - Local LLMs (set `OLLAMA_BASE_URL`)
 
 Keys stored at `~/.config/ai-mm/env` with secure permissions.
 
@@ -61,6 +61,8 @@ git diff | ai review --model mm --focus architecture
 
 # Planning
 ai plan "Add user authentication"
+ai plan "Design resilient background jobs" --depth deep --rounds 3 --strict
+ai plan "Refactor billing" --model mm --context auto --output-format json
 
 # Multi-round stabilized planning
 ai stabilize "Design rate limiting" --rounds 2
@@ -82,11 +84,15 @@ Use Ollama for free, private code reviews:
 brew install ollama
 ollama pull qwen2.5:14b
 
+# Configure Ollama endpoint for ai-mm
+ai config
+
 # Review with local model
 git diff | ai review --model ollama
 ```
 
-No API key needed. Works offline. Your code never leaves your machine.
+No API key needed, but `OLLAMA_BASE_URL` must be configured. Works offline.
+Your code never leaves your machine.
 
 ## Development
 
@@ -128,10 +134,13 @@ cat > ~/.config/ai-mm/env <<'EOF'
 export OPENAI_API_KEY="sk-..."
 export GOOGLE_AI_API_KEY="..."
 export ANTHROPIC_API_KEY="sk-ant-..."
-# No key needed for Ollama
+export OLLAMA_BASE_URL="http://localhost:11434"
 EOF
 chmod 600 ~/.config/ai-mm/env
 ```
+
+When editing Ollama in `ai config`, the endpoint is shown in plain text (not masked).
+If missing, the UI suggests `http://localhost:11434`.
 
 ## Design Principles
 

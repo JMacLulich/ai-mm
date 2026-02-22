@@ -14,6 +14,7 @@ Usage:
 
 Examples:
     ai plan "Build user authentication"
+    ai plan "Migrate auth service" --model mm --depth deep --rounds 3 --strict
     ai review --model gemini --focus security
     ai review --model mm  # Parallel GPT + Gemini + Claude Opus + local Ollama
     ai stabilize "Add caching layer" --rounds 2 --mode infra
@@ -52,7 +53,7 @@ load_env_file(Path.home() / ".config" / "ai-mm" / "env", overwrite=True)
 load_env_file(ROOT / ".env", overwrite=True)
 
 # Import API and utilities
-from claude_mm.api import plan, review  # noqa: E402
+from claude_mm.api import plan, review, stabilize  # noqa: E402
 from claude_mm.cache import clear_cache, get_cache_stats  # noqa: E402
 from claude_mm.config import load_config  # noqa: E402
 from claude_mm.config_tui import run_config_tui  # noqa: E402
@@ -173,13 +174,49 @@ def cmd_plan(args):
 
     # Run plan
     try:
+        include_files = None
+        if args.include_files:
+            include_files = [item.strip() for item in args.include_files.split(",") if item.strip()]
+
         result = plan(
             goal,
             model=args.model,
             use_cache=not args.no_cache,
+            depth=args.depth,
+            rounds=args.rounds,
+            output_format=args.output_format,
+            strict=args.strict,
+            context_mode=args.context,
+            include_files=include_files,
+            confidence_threshold=args.confidence_threshold,
         )
 
         print(result.text, file=sys.stdout)
+
+        metadata = getattr(result, "metadata", {}) or {}
+        confidence = metadata.get("confidence")
+        errors = len(metadata.get("errors", []))
+        warnings = len(metadata.get("warnings", []))
+        rounds = metadata.get("rounds")
+        depth = metadata.get("depth")
+
+        if confidence is not None:
+            try:
+                confidence_value = float(confidence)
+                confidence_text = f"{confidence_value:.2f}"
+            except (TypeError, ValueError):
+                confidence_text = str(confidence)
+
+            quality_parts = [
+                f"confidence {confidence_text}",
+                f"errors {errors}",
+                f"warnings {warnings}",
+            ]
+            if rounds is not None:
+                quality_parts.append(f"rounds {rounds}")
+            if depth:
+                quality_parts.append(f"depth {depth}")
+            print(f"\n📈 Plan quality: {' | '.join(quality_parts)}", file=sys.stderr)
 
         if not result.cached and result.cost:
             print(f"\n💰 Actual cost: ${result.cost:.4f}", file=sys.stderr)
@@ -191,9 +228,37 @@ def cmd_plan(args):
 
 def cmd_stabilize(args):
     """Handle stabilize command."""
-    print("Error: Stabilize not yet migrated to new API", file=sys.stderr)
-    print("Use legacy version for now or contribute the migration!", file=sys.stderr)
-    sys.exit(1)
+    # Get goal from args or stdin
+    if args.goal:
+        goal = args.goal
+    elif not sys.stdin.isatty():
+        goal = sys.stdin.read()
+    else:
+        print("Error: No goal provided", file=sys.stderr)
+        print("Usage: ai stabilize \"goal\" or echo \"goal\" | ai stabilize", file=sys.stderr)
+        sys.exit(1)
+
+    if not goal.strip():
+        print("Error: Empty goal", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        result = stabilize(
+            goal=goal,
+            rounds=args.rounds,
+            mode=args.mode,
+            use_cache=not args.no_cache,
+        )
+
+        print(result["final_plan"].text, file=sys.stdout)
+
+        total_cost = result.get("total_cost", 0)
+        if total_cost:
+            print(f"\n💰 Actual cost: ${total_cost:.4f}", file=sys.stderr)
+
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_cache(args):
@@ -264,7 +329,7 @@ def cmd_usage(args):
 
 
 def cmd_config(args):
-    """Handle config command - interactive API key management."""
+    """Handle config command - interactive provider config management."""
     try:
         saved = run_config_tui()
         if saved:
@@ -330,9 +395,50 @@ def main():
     review_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 
     # Plan command
-    plan_parser = subparsers.add_parser("plan", help="Generate implementation plan")
+    plan_parser = subparsers.add_parser("plan", help="Generate extensive implementation plan")
     plan_parser.add_argument("goal", nargs="?", help="What to plan")
-    plan_parser.add_argument("--model", help="Model to use")
+    plan_parser.add_argument("--model", help="Model to use (supports: mm)")
+    plan_parser.add_argument(
+        "--depth",
+        choices=["standard", "deep"],
+        default="standard",
+        help="Planning depth preset",
+    )
+    plan_parser.add_argument(
+        "--rounds",
+        type=int,
+        default=2,
+        help="Number of critique/revision rounds",
+    )
+    plan_parser.add_argument(
+        "--output-format",
+        "--format",
+        dest="output_format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="Plan output format",
+    )
+    plan_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if confidence is low or blocking questions remain",
+    )
+    plan_parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.72,
+        help="Minimum confidence required in strict mode",
+    )
+    plan_parser.add_argument(
+        "--context",
+        choices=["none", "auto"],
+        default="none",
+        help="Include additional repository context in planning",
+    )
+    plan_parser.add_argument(
+        "--include-files",
+        help="Comma-separated file paths to include as planning context",
+    )
     plan_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 
     # Stabilize command
@@ -344,6 +450,7 @@ def main():
         choices=["migrations", "docs", "infra"],
         help="Specialized mode",
     )
+    stab_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 
     # Cache command
     cache_parser = subparsers.add_parser("cache", help="Manage cache")
@@ -366,7 +473,7 @@ def main():
     usage_parser.add_argument("--export", help="Export to CSV file")
 
     # Config command
-    subparsers.add_parser("config", help="Interactive API key configuration")
+    subparsers.add_parser("config", help="Interactive provider configuration")
 
     # Model access check command
     check_parser = subparsers.add_parser(
