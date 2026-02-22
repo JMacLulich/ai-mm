@@ -23,38 +23,52 @@ Pricing Accuracy:
 
 # Base pricing data
 _GPT_INSTANT_PRICING = {
-    "input": 0.40,      # $0.40 per 1M tokens
-    "output": 1.60,     # $1.60 per 1M tokens
-    "cached": 0.04,     # 90% discount on cached input
+    "input": 0.40,  # $0.40 per 1M tokens
+    "output": 1.60,  # $1.60 per 1M tokens
+    "cached": 0.04,  # 90% discount on cached input
     "is_estimated": False,
 }
 
 _GPT_STANDARD_PRICING = {
-    "input": 1.75,      # $1.75 per 1M tokens
-    "output": 14.00,    # $14.00 per 1M tokens
-    "cached": 0.175,    # 90% discount on cached input
+    "input": 1.75,  # $1.75 per 1M tokens
+    "output": 14.00,  # $14.00 per 1M tokens
+    "cached": 0.175,  # 90% discount on cached input
     "is_estimated": False,
 }
 
 _GPT_PRO_PRICING = {
-    "input": 8.75,      # $8.75 per 1M tokens (estimated 5x standard)
-    "output": 70.00,    # $70.00 per 1M tokens (estimated 5x standard)
-    "cached": 0.875,    # 90% discount on cached input
+    "input": 8.75,  # $8.75 per 1M tokens (estimated 5x standard)
+    "output": 70.00,  # $70.00 per 1M tokens (estimated 5x standard)
+    "cached": 0.875,  # 90% discount on cached input
     "is_estimated": True,  # Pro pricing is estimated
 }
 
 _GEMINI_FLASH_PRICING = {
-    "input": 0.075,     # $0.075 per 1M tokens (Google Gemini 3 Flash)
-    "output": 0.30,     # $0.30 per 1M tokens
+    "input": 0.075,  # $0.075 per 1M tokens (Google Gemini 3 Flash)
+    "output": 0.30,  # $0.30 per 1M tokens
     "cached": 0.01875,  # 75% discount on cached input
     "is_estimated": False,
 }
 
+_GEMINI_PRO_PRICING = {
+    "input": 1.25,
+    "output": 10.00,
+    "cached": 0.3125,  # 75% discount on cached input
+    "is_estimated": True,
+}
+
 _CLAUDE_SONNET_PRICING = {
-    "input": 3.00,      # $3.00 per 1M tokens (Claude Sonnet 4.5)
-    "output": 15.00,    # $15.00 per 1M tokens
-    "cached": 0.30,     # 90% discount on cached input
+    "input": 3.00,  # $3.00 per 1M tokens (Claude Sonnet 4.5)
+    "output": 15.00,  # $15.00 per 1M tokens
+    "cached": 0.30,  # 90% discount on cached input
     "is_estimated": True,  # Claude pricing is approximate
+}
+
+_CLAUDE_OPUS_PRICING = {
+    "input": 5.00,
+    "output": 25.00,
+    "cached": 0.50,  # 90% discount on cached input
+    "is_estimated": True,
 }
 
 # Model aliases with pricing
@@ -70,13 +84,18 @@ PRICING = {
     "gpt-5": _GPT_STANDARD_PRICING.copy(),
     "gpt": _GPT_STANDARD_PRICING.copy(),
     "gpt-5.2-pro": _GPT_PRO_PRICING.copy(),
-
-    # Gemini models (gemini-3-flash-preview only)
-    "gemini": _GEMINI_FLASH_PRICING.copy(),
+    # Gemini models
+    "gemini": _GEMINI_PRO_PRICING.copy(),
+    "gemini-pro": _GEMINI_PRO_PRICING.copy(),
+    "gemini-3.1-pro-preview": _GEMINI_PRO_PRICING.copy(),
+    "gemini-3-pro-preview": _GEMINI_PRO_PRICING.copy(),
+    "gemini-2.5-pro": _GEMINI_PRO_PRICING.copy(),
     "gemini-3-flash-preview": _GEMINI_FLASH_PRICING.copy(),
-
     # Claude models (approximate pricing - verify with Anthropic)
-    "claude": _CLAUDE_SONNET_PRICING.copy(),
+    "claude": _CLAUDE_OPUS_PRICING.copy(),
+    "opus": _CLAUDE_OPUS_PRICING.copy(),
+    "claude-opus-4-6": _CLAUDE_OPUS_PRICING.copy(),
+    "claude-sonnet-4-6": _CLAUDE_SONNET_PRICING.copy(),
     "claude-sonnet-4-5-20250929": _CLAUDE_SONNET_PRICING.copy(),
 }
 
@@ -93,10 +112,7 @@ def estimate_tokens(text: str) -> int:
 
 
 def estimate_cost(
-    model: str,
-    input_tokens: int,
-    output_tokens: int,
-    cached_tokens: int = 0
+    model: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0
 ) -> float:
     """
     Estimate cost for an API call.
@@ -130,10 +146,7 @@ def estimate_cost(
 
 
 def estimate_cost_from_text(
-    model: str,
-    input_text: str,
-    expected_output_tokens: int = 1000,
-    cached_ratio: float = 0.0
+    model: str, input_text: str, expected_output_tokens: int = 1000, cached_ratio: float = 0.0
 ) -> dict:
     """
     Estimate cost from input text.
@@ -195,8 +208,8 @@ Model: {model}
 Estimated cost: ${estimated_cost:.4f}
 
 Billing rates (per 1M tokens):
-  Input:  ${PRICING.get(model, {}).get('input', 0):.2f}
-  Output: ${PRICING.get(model, {}).get('output', 0):.2f}
+  Input:  ${PRICING.get(model, {}).get("input", 0):.2f}
+  Output: ${PRICING.get(model, {}).get("output", 0):.2f}
 """
 
 
@@ -242,11 +255,7 @@ def get_cost_log_path() -> Path:
 
 
 def log_api_call(
-    model: str,
-    input_tokens: int,
-    output_tokens: int,
-    cost: float,
-    operation: str = "unknown"
+    model: str, input_tokens: int, output_tokens: int, cost: float, operation: str = "unknown"
 ) -> None:
     """
     Log an API call to the cost tracking file.
@@ -351,6 +360,7 @@ def get_usage_stats(days: int = None) -> dict:
 # Response Caching
 # ============================================================================
 
+
 def get_cache_dir() -> Path:
     """Get the cache directory path."""
     cache_dir = Path.home() / ".config" / "ai" / "cache"
@@ -429,6 +439,7 @@ def cache_response(model: str, prompt: str, response: str, system_prompt: str = 
     except Exception as e:
         # Don't fail the operation if caching fails
         import sys
+
         print(f"Warning: Failed to cache response: {e}", file=sys.stderr)
 
 
@@ -531,10 +542,10 @@ if __name__ == "__main__":
 
     # Stabilization (multi-round)
     stabilize_estimate = estimate_cost_from_text("gpt-5.2", plan_input * 100, 4000)
-    stabilize_total = stabilize_estimate['estimated_cost'] * 4  # 4 rounds
+    stabilize_total = stabilize_estimate["estimated_cost"] * 4  # 4 rounds
     print(f"Stabilization 2 rounds (gpt-5.2): ${stabilize_total:.4f}")
 
     # Pro warning
     pro_estimate = estimate_cost_from_text("gpt-5.2-pro", plan_input * 100, 2000)
     print(f"\nPro Model (gpt-5.2-pro): {pro_estimate['cost_formatted']}")
-    print(format_cost_warning("gpt-5.2-pro", pro_estimate['estimated_cost'], "complex planning"))
+    print(format_cost_warning("gpt-5.2-pro", pro_estimate["estimated_cost"], "complex planning"))

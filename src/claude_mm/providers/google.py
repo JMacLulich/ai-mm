@@ -35,7 +35,7 @@ class GoogleProvider(Provider):
     def complete(
         self,
         prompt: str,
-        model: str = "gemini-3-flash-preview",
+        model: str = "gemini-3.1-pro-preview",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -46,7 +46,7 @@ class GoogleProvider(Provider):
 
         Args:
             prompt: User prompt
-            model: Model identifier (e.g., 'gemini-3-flash-preview')
+            model: Model identifier (e.g., 'gemini-3.1-pro-preview')
             system_prompt: Optional system prompt
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
@@ -90,8 +90,8 @@ class GoogleProvider(Provider):
             input_tokens = 0
             output_tokens = 0
             if hasattr(response, "usage_metadata") and response.usage_metadata:
-                input_tokens = response.usage_metadata.prompt_token_count
-                output_tokens = response.usage_metadata.candidates_token_count
+                input_tokens = int(response.usage_metadata.prompt_token_count or 0)
+                output_tokens = int(response.usage_metadata.candidates_token_count or 0)
 
             # Calculate cost
             cost = self.estimate_cost(input_tokens, output_tokens, model)
@@ -111,7 +111,7 @@ class GoogleProvider(Provider):
     async def complete_async(
         self,
         prompt: str,
-        model: str = "gemini-3-flash-preview",
+        model: str = "gemini-3.1-pro-preview",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -159,7 +159,7 @@ class GoogleProvider(Provider):
 
             client = genai.Client(api_key=self.api_key)
             client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.1-pro-preview",
                 contents="Hi",
             )
             return True, "Valid"

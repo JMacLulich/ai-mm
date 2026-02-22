@@ -35,7 +35,7 @@ class AnthropicProvider(Provider):
     def complete(
         self,
         prompt: str,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = "claude-opus-4-6",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -46,7 +46,7 @@ class AnthropicProvider(Provider):
 
         Args:
             prompt: User prompt
-            model: Model identifier (e.g., 'claude-sonnet-4-5-20250929')
+            model: Model identifier (e.g., 'claude-opus-4-6')
             system_prompt: Optional system prompt
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
@@ -112,7 +112,7 @@ class AnthropicProvider(Provider):
     async def complete_async(
         self,
         prompt: str,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = "claude-opus-4-6",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -204,7 +204,7 @@ class AnthropicProvider(Provider):
 
             client = Anthropic(api_key=self.api_key)
             client.messages.create(
-                model="claude-3-haiku-20240307",
+                model="claude-opus-4-6",
                 max_tokens=5,
                 messages=[{"role": "user", "content": "Hi"}],
             )

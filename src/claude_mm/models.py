@@ -34,6 +34,7 @@ OPENAI_ALIASES = {
 
 # Google Gemini Models
 GEMINI_MODELS = {
+    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",  # Latest Pro (preview)
     "gemini-3-pro-preview": "gemini-3-pro-preview",  # Latest Pro - biggest model
     "gemini-2.5-pro": "gemini-2.5-pro",  # Stable Pro
     "gemini-3-flash-preview": "gemini-3-flash-preview",  # Fast, cheap
@@ -41,21 +42,23 @@ GEMINI_MODELS = {
 }
 
 GEMINI_ALIASES = {
-    "gemini": "gemini-3-pro-preview",  # Default to biggest model for reviews
-    "gemini-pro": "gemini-2.5-pro",  # Stable pro
+    "gemini": "gemini-3.1-pro-preview",  # Default to latest Pro
+    "gemini-pro": "gemini-3.1-pro-preview",  # Alias to latest Pro
     "gemini-flash": "gemini-3-flash-preview",
 }
 
 # Anthropic Claude Models
 CLAUDE_MODELS = {
-    "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",  # Latest Opus
-    "claude-sonnet-4-5-20250929": "claude-sonnet-4-5-20250929",  # Latest Sonnet
+    "claude-opus-4-6": "claude-opus-4-6",  # Latest Opus
+    "claude-sonnet-4-6": "claude-sonnet-4-6",  # Latest Sonnet
+    "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",  # Previous Opus
+    "claude-sonnet-4-5-20250929": "claude-sonnet-4-5-20250929",  # Previous Sonnet
     "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",  # Latest Haiku
 }
 
 CLAUDE_ALIASES = {
-    "claude": "claude-sonnet-4-5-20250929",  # Default to latest Sonnet
-    "opus": "claude-opus-4-5-20251101",  # Opus alias
+    "claude": "claude-opus-4-6",  # Default to latest Opus
+    "opus": "claude-opus-4-6",  # Opus alias
     "haiku": "claude-haiku-4-5-20251001",
 }
 
@@ -74,7 +77,8 @@ OLLAMA_ALIASES = {
 
 # Model groups for multi-model reviews
 MODEL_GROUPS = {
-    "mm": ["gpt-5.2", "gemini", "claude-opus-4-5-20251101"],  # Premium multi-model
+    "mm": ["gpt-5.2", "gemini", "claude-opus-4-6"],  # Premium multi-model
+    "all": ["gpt-5.2", "gemini", "claude-opus-4-6", "ollama"],  # All providers
     "fast": [
         "gpt-5.2-chat-latest",
         "gemini-3-flash-preview",
@@ -136,7 +140,7 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
         >>> normalize_model_name("gpt-5.2-instant")
         ("openai", "gpt-5.2-chat-latest")
         >>> normalize_model_name("gemini")
-        ("google", "gemini-3-pro-preview")
+        ("google", "gemini-3.1-pro-preview")
         >>> normalize_model_name("ollama")
         ("ollama", "qwen2.5:14b-instruct")
     """
@@ -185,11 +189,14 @@ def get_model_display_name(api_model: str) -> str:
         "gpt-4o": "GPT-4o",
         "gpt-4": "GPT-4",
         # Gemini
+        "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
         "gemini-3-pro-preview": "Gemini 3 Pro",
         "gemini-2.5-pro": "Gemini 2.5 Pro",
         "gemini-3-flash-preview": "Gemini 3 Flash",
         "gemini-2.0-flash-exp": "Gemini 2.0 Flash (Experimental)",
         # Claude
+        "claude-opus-4-6": "Claude Opus 4.6",
+        "claude-sonnet-4-6": "Claude Sonnet 4.6",
         "claude-opus-4-5-20251101": "Claude Opus 4.5",
         "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
         "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
@@ -246,6 +253,12 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "description": "Legacy GPT-4 model",
         },
         # Gemini
+        "gemini-3.1-pro-preview": {
+            "speed": "medium",
+            "cost_tier": "medium",
+            "context_window": 1000000,
+            "description": "Latest Gemini 3.1 Pro (preview)",
+        },
         "gemini-3-pro-preview": {
             "speed": "medium",
             "cost_tier": "medium",
@@ -271,6 +284,18 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "description": "Experimental Gemini 2.0",
         },
         # Claude
+        "claude-opus-4-6": {
+            "speed": "moderate",
+            "cost_tier": "high",
+            "context_window": 200000,
+            "description": "Latest Opus model for complex coding and reasoning",
+        },
+        "claude-sonnet-4-6": {
+            "speed": "fast",
+            "cost_tier": "medium",
+            "context_window": 200000,
+            "description": "Latest Sonnet model with strong speed and intelligence",
+        },
         "claude-opus-4-5-20251101": {
             "speed": "moderate",
             "cost_tier": "high",

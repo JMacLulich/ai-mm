@@ -10,6 +10,7 @@ Usage:
     ai stabilize "goal" [--rounds N] [--mode MODE]
     ai cache stats|clear [--older-than HOURS]
     ai usage [--today|--week|--month] [--export FILE]
+    ai check-models [--gpt MODEL] [--claude MODEL] [--gemini MODEL] [--local MODEL]
 
 Examples:
     ai plan "Build user authentication"
@@ -29,7 +30,7 @@ ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 # Load environment
-def load_env_file(env_path):
+def load_env_file(env_path, overwrite=True):
     """Load environment variables from a file."""
     if not env_path.exists():
         return
@@ -42,12 +43,13 @@ def load_env_file(env_path):
                     key = key[7:]
                 value = value.strip().strip('"').strip("'")
                 if value:
-                    os.environ[key] = value
+                    if overwrite or key not in os.environ:
+                        os.environ[key] = value
 
-# Load from repo .env first (highest priority)
-load_env_file(ROOT / ".env")
-# Load from user config
-load_env_file(Path.home() / ".config" / "ai-mm" / "env")
+# Deterministic env precedence (lowest -> highest):
+# 1) Inherited shell env, 2) user config env, 3) repo-local .env
+load_env_file(Path.home() / ".config" / "ai-mm" / "env", overwrite=True)
+load_env_file(ROOT / ".env", overwrite=True)
 
 # Import API and utilities
 from claude_mm.api import plan, review  # noqa: E402
@@ -55,6 +57,10 @@ from claude_mm.cache import clear_cache, get_cache_stats  # noqa: E402
 from claude_mm.config import load_config  # noqa: E402
 from claude_mm.config_tui import run_config_tui  # noqa: E402
 from claude_mm.models import MODEL_GROUPS  # noqa: E402
+from claude_mm.providers.anthropic import AnthropicProvider  # noqa: E402
+from claude_mm.providers.google import GoogleProvider  # noqa: E402
+from claude_mm.providers.ollama import OllamaProvider  # noqa: E402
+from claude_mm.providers.openai import OpenAIProvider  # noqa: E402
 from claude_mm.usage import get_usage_stats  # noqa: E402
 
 
@@ -76,13 +82,22 @@ def cmd_review(args):
     if args.model == "mm":
         models = MODEL_GROUPS["mm"]
         print(
-            "🔍 Running multimode review with GPT-5.2 + Gemini 3 Pro + Claude Opus 4.5 in parallel...",
+            "🔍 Running multimode review with GPT-5.2 + Gemini 3.1 Pro + Claude Opus 4.6 in parallel...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":
             print(f"📊 Focus: {args.focus}", file=sys.stderr)
         print(file=sys.stderr)
-    elif args.model == "all" or args.model == "fast":
+    elif args.model == "all":
+        models = MODEL_GROUPS["all"]
+        print(
+            "🔍 Running review with all providers (GPT + Gemini + Opus + local Ollama) in parallel...",
+            file=sys.stderr,
+        )
+        if args.focus and args.focus != "general":
+            print(f"📊 Focus: {args.focus}", file=sys.stderr)
+        print(file=sys.stderr)
+    elif args.model == "fast":
         models = MODEL_GROUPS["fast"]
         print(
             "🔍 Running review with all 3 fast models (GPT Instant + Gemini Flash + Haiku 4.5) in parallel...",
@@ -261,6 +276,34 @@ def cmd_config(args):
         sys.exit(1)
 
 
+def cmd_check_models(args):
+    """Check access to configured GPT, Claude, Gemini, and local models."""
+    checks = [
+        ("gpt", args.gpt, OpenAIProvider),
+        ("claude", args.claude, AnthropicProvider),
+        ("gemini", args.gemini, GoogleProvider),
+        ("local", args.local, OllamaProvider),
+    ]
+    all_ok = True
+
+    for provider_name, model, provider_cls in checks:
+        try:
+            provider = provider_cls()
+            response = provider.complete(
+                prompt="Reply with OK",
+                model=model,
+                temperature=0,
+            )
+            text = (response.text or "").strip()
+            print(f"{provider_name}/{model}: OK - {text[:80]}")
+        except Exception as e:
+            all_ok = False
+            print(f"{provider_name}/{model}: FAIL - {e}")
+
+    if not all_ok:
+        sys.exit(1)
+
+
 def main():
     """Main CLI entry point."""
     # Load config (available for future extension)
@@ -274,7 +317,10 @@ def main():
 
     # Review command
     review_parser = subparsers.add_parser("review", help="Review code changes")
-    review_parser.add_argument("--model", help="Model to use (gpt, gemini, claude, opus, mm, all)")
+    review_parser.add_argument(
+        "--model",
+        help="Model to use (gpt, gemini, claude, opus, ollama, mm, all, fast)",
+    )
     review_parser.add_argument(
         "--focus",
         choices=["general", "security", "performance", "architecture", "testing"],
@@ -322,6 +368,32 @@ def main():
     # Config command
     subparsers.add_parser("config", help="Interactive API key configuration")
 
+    # Model access check command
+    check_parser = subparsers.add_parser(
+        "check-models",
+        help="Check access to configured Claude and Gemini models",
+    )
+    check_parser.add_argument(
+        "--gpt",
+        default="gpt-5.2-chat-latest",
+        help="GPT model to test (default: gpt-5.2-chat-latest)",
+    )
+    check_parser.add_argument(
+        "--claude",
+        default="claude-opus-4-6",
+        help="Claude model to test (default: claude-opus-4-6)",
+    )
+    check_parser.add_argument(
+        "--gemini",
+        default="gemini-3.1-pro-preview",
+        help="Gemini model to test (default: gemini-3.1-pro-preview)",
+    )
+    check_parser.add_argument(
+        "--local",
+        default="qwen2.5:14b-instruct",
+        help="Local Ollama model to test (default: qwen2.5:14b-instruct)",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -341,6 +413,8 @@ def main():
         cmd_usage(args)
     elif args.command == "config":
         cmd_config(args)
+    elif args.command == "check-models":
+        cmd_check_models(args)
     else:
         parser.print_help()
         sys.exit(1)

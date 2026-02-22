@@ -22,11 +22,16 @@ DEFAULT_PRICING = {
         "gpt-4": {"input": 30.00, "output": 60.00},
     },
     "google": {
+        "gemini-3.1-pro-preview": {"input": 1.25, "output": 10.00},
+        "gemini-3-pro-preview": {"input": 1.25, "output": 10.00},
+        "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
         "gemini-3-flash-preview": {"input": 0.075, "output": 0.30},
         "gemini-2.0-flash-exp": {"input": 0.075, "output": 0.30},
         "gemini-pro": {"input": 0.50, "output": 1.50},
     },
     "anthropic": {
+        "claude-opus-4-6": {"input": 5.00, "output": 25.00},
+        "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
         "claude-opus-4-5-20251101": {"input": 5.00, "output": 25.00},
         "claude-sonnet-4-5-20250929": {"input": 3.00, "output": 15.00},
         "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
@@ -105,13 +110,45 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
     if model in provider_pricing:
         return provider_pricing[model]
 
-    # Try to find a default for the provider
+    # Try to find a default for the provider from loaded pricing
     if provider == "openai":
-        return provider_pricing.get("gpt-5.2")
+        for fallback in ["gpt-5.2", "gpt-5.2-chat-latest"]:
+            if fallback in provider_pricing:
+                return provider_pricing[fallback]
     elif provider == "google":
-        return provider_pricing.get("gemini-3-flash-preview")
+        for fallback in [
+            "gemini-3.1-pro-preview",
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+        ]:
+            if fallback in provider_pricing:
+                return provider_pricing[fallback]
     elif provider == "anthropic":
-        return provider_pricing.get("claude-sonnet-4-5-20250929")
+        for fallback in ["claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5-20251101"]:
+            if fallback in provider_pricing:
+                return provider_pricing[fallback]
+
+    # Fall back to embedded defaults when user pricing file is stale
+    default_provider_pricing = DEFAULT_PRICING.get(provider, {})
+    if model in default_provider_pricing:
+        return default_provider_pricing[model]
+
+    if provider == "openai":
+        for fallback in ["gpt-5.2", "gpt-5.2-chat-latest"]:
+            if fallback in default_provider_pricing:
+                return default_provider_pricing[fallback]
+    elif provider == "google":
+        for fallback in [
+            "gemini-3.1-pro-preview",
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+        ]:
+            if fallback in default_provider_pricing:
+                return default_provider_pricing[fallback]
+    elif provider == "anthropic":
+        for fallback in ["claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5-20251101"]:
+            if fallback in default_provider_pricing:
+                return default_provider_pricing[fallback]
 
     return None
 

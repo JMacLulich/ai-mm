@@ -18,8 +18,8 @@ from claude_mm.env import CONFIG_DIR, ENV_FILE, load_env_file, save_env_file
 
 PROVIDERS = [
     ("openai", "OPENAI_API_KEY", "GPT-5.2 (reviews)", "sk-"),
-    ("google", "GOOGLE_AI_API_KEY", "Gemini 3 Pro (reviews)", None),
-    ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.5 (reviews)", "sk-ant-"),
+    ("google", "GOOGLE_AI_API_KEY", "Gemini 3.1 Pro (reviews)", None),
+    ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
     ("ollama", None, "Local LLM (no key needed)", None),
 ]
 
@@ -49,7 +49,7 @@ def _test_api_key(provider: str, api_key: str) -> tuple[bool, str]:
 
             client = genai.Client(api_key=api_key)
             client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.1-pro-preview",
                 contents="Hi",
             )
             return True, "Valid"
@@ -59,7 +59,7 @@ def _test_api_key(provider: str, api_key: str) -> tuple[bool, str]:
 
             client = Anthropic(api_key=api_key)
             client.messages.create(
-                model="claude-3-haiku-20240307",
+                model="claude-opus-4-6",
                 max_tokens=5,
                 messages=[{"role": "user", "content": "Hi"}],
             )

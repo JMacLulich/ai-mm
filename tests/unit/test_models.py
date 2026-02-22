@@ -42,7 +42,7 @@ class TestModelRegistries:
     def test_gemini_models_exist(self):
         """Gemini models registry is not empty."""
         assert len(GEMINI_MODELS) > 0
-        assert "gemini-3-flash-preview" in GEMINI_MODELS
+        assert "gemini-3.1-pro-preview" in GEMINI_MODELS
 
     def test_gemini_aliases_exist(self):
         """Gemini aliases are properly defined."""
@@ -52,7 +52,7 @@ class TestModelRegistries:
     def test_claude_models_exist(self):
         """Claude models registry is not empty."""
         assert len(CLAUDE_MODELS) > 0
-        assert "claude-sonnet-4-5-20250929" in CLAUDE_MODELS
+        assert "claude-opus-4-6" in CLAUDE_MODELS
 
     def test_claude_aliases_exist(self):
         """Claude aliases are properly defined."""
@@ -76,7 +76,7 @@ class TestGetProviderForModel:
 
     def test_gemini_models(self):
         """Gemini models resolve to 'google' provider."""
-        assert get_provider_for_model("gemini-3-flash-preview") == "google"
+        assert get_provider_for_model("gemini-3.1-pro-preview") == "google"
 
     def test_gemini_aliases(self):
         """Gemini aliases resolve to 'google' provider."""
@@ -84,7 +84,7 @@ class TestGetProviderForModel:
 
     def test_claude_models(self):
         """Claude models resolve to 'anthropic' provider."""
-        assert get_provider_for_model("claude-sonnet-4-5-20250929") == "anthropic"
+        assert get_provider_for_model("claude-opus-4-6") == "anthropic"
 
     def test_claude_aliases(self):
         """Claude aliases resolve to 'anthropic' provider."""
@@ -130,15 +130,15 @@ class TestNormalizeModelName:
 
     def test_gemini_direct_models(self):
         """Gemini direct model names normalize correctly."""
-        provider, model = normalize_model_name("gemini-3-flash-preview")
+        provider, model = normalize_model_name("gemini-3.1-pro-preview")
         assert provider == "google"
-        assert model == "gemini-3-flash-preview"
+        assert model == "gemini-3.1-pro-preview"
 
     def test_gemini_aliases(self):
         """Gemini aliases resolve to API names."""
         provider, model = normalize_model_name("gemini")
         assert provider == "google"
-        assert model == "gemini-3-pro-preview"
+        assert model == "gemini-3.1-pro-preview"
 
         provider, model = normalize_model_name("gemini-flash")
         assert provider == "google"
@@ -146,15 +146,15 @@ class TestNormalizeModelName:
 
     def test_claude_direct_models(self):
         """Claude direct model names normalize correctly."""
-        provider, model = normalize_model_name("claude-sonnet-4-5-20250929")
+        provider, model = normalize_model_name("claude-opus-4-6")
         assert provider == "anthropic"
-        assert model == "claude-sonnet-4-5-20250929"
+        assert model == "claude-opus-4-6"
 
     def test_claude_aliases(self):
         """Claude aliases resolve to API names."""
         provider, model = normalize_model_name("claude")
         assert provider == "anthropic"
-        assert model == "claude-sonnet-4-5-20250929"
+        assert model == "claude-opus-4-6"
 
     def test_unknown_model_raises(self):
         """Unknown models raise ValueError."""
@@ -176,11 +176,11 @@ class TestGetModelDisplayName:
 
     def test_gemini_display_names(self):
         """Gemini models have proper display names."""
-        assert get_model_display_name("gemini-3-flash-preview") == "Gemini 3 Flash"
+        assert get_model_display_name("gemini-3.1-pro-preview") == "Gemini 3.1 Pro"
 
     def test_claude_display_names(self):
         """Claude models have proper display names."""
-        assert get_model_display_name("claude-sonnet-4-5-20250929") == "Claude Sonnet 4.5"
+        assert get_model_display_name("claude-opus-4-6") == "Claude Opus 4.6"
 
     def test_unknown_model_returns_original(self):
         """Unknown models return the original name."""
@@ -214,16 +214,16 @@ class TestGetModelCharacteristics:
 
     def test_gemini_characteristics(self):
         """Gemini has correct characteristics."""
-        chars = get_model_characteristics("gemini-3-flash-preview")
-        assert chars["speed"] == "fast"
-        assert chars["cost_tier"] == "low"
+        chars = get_model_characteristics("gemini-3.1-pro-preview")
+        assert chars["speed"] == "medium"
+        assert chars["cost_tier"] == "medium"
         assert chars["context_window"] == 1000000
 
     def test_claude_characteristics(self):
         """Claude has correct characteristics."""
-        chars = get_model_characteristics("claude-sonnet-4-5-20250929")
-        assert chars["speed"] == "fast"
-        assert chars["cost_tier"] == "medium"
+        chars = get_model_characteristics("claude-opus-4-6")
+        assert chars["speed"] == "moderate"
+        assert chars["cost_tier"] == "high"
         assert chars["context_window"] == 200000
 
     def test_unknown_model_has_defaults(self):
