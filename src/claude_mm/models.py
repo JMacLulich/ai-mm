@@ -77,7 +77,12 @@ OLLAMA_ALIASES = {
 
 # Model groups for multi-model reviews
 MODEL_GROUPS = {
-    "mm": ["gpt-5.2", "gemini", "claude-opus-4-6"],  # Premium multi-model
+    "mm": [
+        "gpt-5.2",
+        "gemini",
+        "claude-opus-4-6",
+        "ollama",
+    ],  # Multimode includes local model
     "all": ["gpt-5.2", "gemini", "claude-opus-4-6", "ollama"],  # All providers
     "fast": [
         "gpt-5.2-chat-latest",

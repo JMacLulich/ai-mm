@@ -12,6 +12,7 @@ from claude_mm.models import (
     CLAUDE_MODELS,
     GEMINI_ALIASES,
     GEMINI_MODELS,
+    MODEL_GROUPS,
     OPENAI_ALIASES,
     OPENAI_MODELS,
     get_model_characteristics,
@@ -58,6 +59,11 @@ class TestModelRegistries:
         """Claude aliases are properly defined."""
         assert len(CLAUDE_ALIASES) > 0
         assert "claude" in CLAUDE_ALIASES
+
+    def test_mm_group_includes_local_ollama(self):
+        """Multimode reviews include local Ollama provider."""
+        assert "mm" in MODEL_GROUPS
+        assert "ollama" in MODEL_GROUPS["mm"]
 
 
 class TestGetProviderForModel:

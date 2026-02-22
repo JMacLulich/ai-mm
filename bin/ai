@@ -15,7 +15,7 @@ Usage:
 Examples:
     ai plan "Build user authentication"
     ai review --model gemini --focus security
-    ai review --model mm  # Parallel GPT + Gemini + Claude Opus
+    ai review --model mm  # Parallel GPT + Gemini + Claude Opus + local Ollama
     ai stabilize "Add caching layer" --rounds 2 --mode infra
 """
 
@@ -82,7 +82,7 @@ def cmd_review(args):
     if args.model == "mm":
         models = MODEL_GROUPS["mm"]
         print(
-            "🔍 Running multimode review with GPT-5.2 + Gemini 3.1 Pro + Claude Opus 4.6 in parallel...",
+            "🔍 Running multimode review with GPT-5.2 + Gemini 3.1 Pro + Claude Opus 4.6 + local Ollama in parallel...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":

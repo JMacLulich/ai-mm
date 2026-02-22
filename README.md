@@ -43,7 +43,7 @@ Keys stored at `~/.config/ai-mm/env` with secure permissions.
 ## Usage
 
 ```bash
-# Parallel multi-model review (GPT + Gemini + Claude)
+# Parallel multimode review (GPT + Gemini + Claude + local Ollama)
 git diff | ai review --model mm
 
 # Fast models only (cheaper)
