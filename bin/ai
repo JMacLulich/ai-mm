@@ -15,6 +15,7 @@ Usage:
 Examples:
     ai plan "Build user authentication"
     ai plan "Migrate auth service" --model mm --depth deep --rounds 3 --strict
+    ai plan "Migrate auth service" --quiet-quality
     ai review --model gemini --focus security
     ai review --model mm  # Parallel GPT + Gemini + Claude Opus + local Ollama
     ai stabilize "Add caching layer" --rounds 2 --mode infra
@@ -200,7 +201,7 @@ def cmd_plan(args):
         rounds = metadata.get("rounds")
         depth = metadata.get("depth")
 
-        if confidence is not None:
+        if confidence is not None and not args.quiet_quality:
             try:
                 confidence_value = float(confidence)
                 confidence_text = f"{confidence_value:.2f}"
@@ -438,6 +439,11 @@ def main():
     plan_parser.add_argument(
         "--include-files",
         help="Comma-separated file paths to include as planning context",
+    )
+    plan_parser.add_argument(
+        "--quiet-quality",
+        action="store_true",
+        help="Hide plan quality summary output on stderr",
     )
     plan_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 

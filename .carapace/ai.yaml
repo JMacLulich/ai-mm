@@ -14,6 +14,7 @@ commands:
       --confidence-threshold=: Minimum confidence for strict mode
       --context=: Include repository context
       --include-files=: Extra context files (comma-separated)
+      --quiet-quality: Hide plan quality summary output
       --no-cache: Bypass response cache
     completion:
       flag:
