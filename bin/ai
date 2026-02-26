@@ -449,7 +449,7 @@ def main():
 
     # Stabilize command
     stab_parser = subparsers.add_parser("stabilize", help="Multi-round plan stabilization")
-    stab_parser.add_argument("goal", help="What to plan")
+    stab_parser.add_argument("goal", nargs="?", help="What to plan")
     stab_parser.add_argument("--rounds", type=int, default=2, help="Number of rounds")
     stab_parser.add_argument(
         "--mode",
