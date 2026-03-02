@@ -230,6 +230,12 @@ def _review_multi(
         for model, error in errors.items():
             print(f"Error reviewing with {model}: {error}")
 
+    if not results:
+        raise RuntimeError(
+            "All review models failed after retry attempts. "
+            "Configure at least one working provider and try again."
+        )
+
     return MultiReviewResult(results)
 
 

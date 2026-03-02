@@ -4,6 +4,8 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from claude_mm import api
@@ -45,3 +47,22 @@ def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, capsys):
     assert "Error reviewing with ollama:" in output
     assert "ollama" not in result.results
     assert len(result.results) == len(MODEL_GROUPS["mm"]) - 1
+
+
+def test_mm_review_raises_when_all_models_fail(monkeypatch):
+    """Multimode reviews fail fast when every configured model errors out."""
+
+    class AlwaysFailProvider:
+        def complete(self, prompt, model, system_prompt=None):
+            raise Exception(f"{model} unavailable")
+
+    monkeypatch.setattr(api, "get_provider", lambda _provider_name: AlwaysFailProvider())
+    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="All review models failed"):
+        api.review(
+            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
+            models=MODEL_GROUPS["mm"],
+            focus="architecture",
+            use_cache=False,
+        )
