@@ -12,6 +12,8 @@ from claude_mm.models import (
     CLAUDE_MODELS,
     GEMINI_ALIASES,
     GEMINI_MODELS,
+    LMSTUDIO_ALIASES,
+    LMSTUDIO_MODELS,
     MODEL_GROUPS,
     OPENAI_ALIASES,
     OPENAI_MODELS,
@@ -65,6 +67,16 @@ class TestModelRegistries:
         assert "mm" in MODEL_GROUPS
         assert "ollama" in MODEL_GROUPS["mm"]
 
+    def test_lmstudio_models_exist(self):
+        """LM Studio models registry is not empty."""
+        assert len(LMSTUDIO_MODELS) > 0
+        assert "qwen3.5:27b" in LMSTUDIO_MODELS
+
+    def test_lmstudio_aliases_exist(self):
+        """LM Studio aliases are properly defined."""
+        assert len(LMSTUDIO_ALIASES) > 0
+        assert "lmstudio" in LMSTUDIO_ALIASES
+
 
 class TestGetProviderForModel:
     """Test provider detection from model names."""
@@ -100,6 +112,14 @@ class TestGetProviderForModel:
         """Unknown models return None."""
         assert get_provider_for_model("unknown-model") is None
         assert get_provider_for_model("gpt-99") is None
+
+    def test_lmstudio_models(self):
+        """LM Studio models resolve to 'lmstudio' provider."""
+        assert get_provider_for_model("qwen3.5:27b") == "lmstudio"
+
+    def test_lmstudio_aliases(self):
+        """LM Studio aliases resolve to 'lmstudio' provider."""
+        assert get_provider_for_model("lmstudio") == "lmstudio"
 
 
 class TestNormalizeModelName:
@@ -170,6 +190,12 @@ class TestNormalizeModelName:
         with pytest.raises(ValueError, match="Unknown model"):
             normalize_model_name("gpt-99")
 
+    def test_lmstudio_alias(self):
+        """LM Studio alias resolves correctly."""
+        provider, model = normalize_model_name("lmstudio")
+        assert provider == "lmstudio"
+        assert model == "qwen3.5:27b"
+
 
 class TestGetModelDisplayName:
     """Test human-readable display names."""
@@ -191,6 +217,10 @@ class TestGetModelDisplayName:
     def test_unknown_model_returns_original(self):
         """Unknown models return the original name."""
         assert get_model_display_name("unknown-model") == "unknown-model"
+
+    def test_lmstudio_display_name(self):
+        """LM Studio model has proper display name."""
+        assert get_model_display_name("qwen3.5:27b") == "Qwen 3.5 27B (LM Studio)"
 
 
 class TestGetModelCharacteristics:
@@ -240,6 +270,13 @@ class TestGetModelCharacteristics:
         assert chars["context_window"] == 8192
         assert chars["description"] == "Unknown model"
 
+    def test_lmstudio_characteristics(self):
+        """LM Studio model has correct characteristics."""
+        chars = get_model_characteristics("qwen3.5:27b")
+        assert chars["speed"] == "medium"
+        assert chars["cost_tier"] == "free"
+        assert chars["context_window"] == 128000
+
 
 class TestListFunctions:
     """Test listing functions."""
@@ -250,6 +287,7 @@ class TestListFunctions:
         assert "openai" in models
         assert "google" in models
         assert "anthropic" in models
+        assert "lmstudio" in models
         assert isinstance(models["openai"], list)
         assert len(models["openai"]) > 0
 
@@ -260,6 +298,7 @@ class TestListFunctions:
         assert "gpt-5.2-instant" in aliases  # Backward compatibility
         assert "gemini" in aliases
         assert "claude" in aliases
+        assert "lmstudio" in aliases
         assert isinstance(aliases, dict)
 
 

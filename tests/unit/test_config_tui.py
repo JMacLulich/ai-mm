@@ -128,6 +128,8 @@ class TestBuildMenuRows:
         assert "openai" in provider_names
         assert "google" in provider_names
         assert "anthropic" in provider_names
+        assert "ollama" in provider_names
+        assert "lmstudio" in provider_names
 
     def test_includes_exit_row(self):
         keys = {}
@@ -162,6 +164,12 @@ class TestBuildMenuRows:
         ollama_row = next(r for r in rows if r["provider"] == "ollama")
         assert ollama_row["masked"] == "http://localhost:11434"
 
+    def test_lmstudio_url_not_masked(self):
+        keys = {"LMSTUDIO_BASE_URL": "http://127.0.0.1:1234/v1"}
+        rows = _build_menu_rows(keys)
+        lmstudio_row = next(r for r in rows if r["provider"] == "lmstudio")
+        assert lmstudio_row["masked"] == "http://127.0.0.1:1234/v1"
+
 
 class TestPromptForValue:
     def test_ollama_prompt_suggests_localhost_default(self, monkeypatch):
@@ -177,6 +185,20 @@ class TestPromptForValue:
         )
 
         assert value == "http://localhost:11434"
+
+    def test_lmstudio_prompt_suggests_localhost_default(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
+        monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+        value = _prompt_for_value(
+            provider="lmstudio",
+            env_key="LMSTUDIO_BASE_URL",
+            description="LM Studio OpenAI-compatible endpoint",
+            prefix="http(s)://...",
+            current_value="",
+        )
+
+        assert value == "http://127.0.0.1:1234/v1"
 
 
 class TestSaveAndLoadKeys:

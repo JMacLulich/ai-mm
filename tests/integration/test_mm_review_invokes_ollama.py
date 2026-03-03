@@ -66,3 +66,44 @@ def test_mm_review_raises_when_all_models_fail(monkeypatch):
             focus="architecture",
             use_cache=False,
         )
+
+
+def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch, capsys):
+    """When 2+ models fail with 503/529 overloads, fallback to LM Studio runs."""
+
+    class StubProvider:
+        def complete(self, prompt, model, system_prompt=None):
+            if model in {"gpt-5.2", "gemini-3.1-pro-preview"}:
+                raise Exception("503 Service Unavailable")
+
+            if model == "lmstudio" or model == "qwen3.5:27b":
+                return ProviderResponse(
+                    text="ok from lmstudio",
+                    model="qwen3.5:27b",
+                    input_tokens=1,
+                    output_tokens=1,
+                    cost=Decimal("0"),
+                )
+
+            return ProviderResponse(
+                text=f"ok from {model}",
+                model=model,
+                input_tokens=1,
+                output_tokens=1,
+                cost=Decimal("0"),
+            )
+
+    monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
+    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
+
+    result = api.review(
+        prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
+        models=["gpt-5.2", "gemini", "claude-opus-4-6"],
+        focus="architecture",
+        use_cache=False,
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Detected repeated provider overloads (503/529)" in output
+    assert "lmstudio" in result.results

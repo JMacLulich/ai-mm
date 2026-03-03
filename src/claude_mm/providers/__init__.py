@@ -8,6 +8,7 @@ This module provides a uniform interface for interacting with different LLM prov
 from .anthropic import AnthropicProvider
 from .base import Provider, ProviderError, ProviderResponse
 from .google import GoogleProvider
+from .lmstudio import LMStudioProvider
 from .ollama import OllamaProvider
 from .openai import OpenAIProvider
 
@@ -19,6 +20,7 @@ __all__ = [
     "GoogleProvider",
     "AnthropicProvider",
     "OllamaProvider",
+    "LMStudioProvider",
 ]
 
 
@@ -41,6 +43,7 @@ def get_provider(name: str, **kwargs) -> Provider:
         "google": GoogleProvider,
         "anthropic": AnthropicProvider,
         "ollama": OllamaProvider,
+        "lmstudio": LMStudioProvider,
     }
 
     if name not in providers:

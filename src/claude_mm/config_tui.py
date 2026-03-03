@@ -21,6 +21,7 @@ PROVIDERS = [
     ("google", "GOOGLE_AI_API_KEY", "Gemini 3.1 Pro (reviews)", None),
     ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
     ("ollama", "OLLAMA_BASE_URL", "Local LLM endpoint URL", "http(s)://..."),
+    ("lmstudio", "LMSTUDIO_BASE_URL", "LM Studio OpenAI-compatible endpoint", "http(s)://..."),
 ]
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -76,6 +77,18 @@ def _test_api_key(provider: str, value: str) -> tuple[bool, str]:
                 if resp.status == 200:
                     return True, "Running"
             return False, "Ollama not running"
+
+        elif provider == "lmstudio":
+            import urllib.request
+
+            if not value:
+                return False, "LMSTUDIO_BASE_URL not configured"
+            base_url = value.rstrip("/")
+            req = urllib.request.Request(f"{base_url}/models", method="GET")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                if resp.status == 200:
+                    return True, "Running"
+            return False, "LM Studio not running"
 
         return False, "Unknown provider"
     except Exception as e:
@@ -181,6 +194,9 @@ def _prompt_for_value(
     if env_key == "OLLAMA_BASE_URL" and not current_value:
         suggested_value = "http://localhost:11434"
         print(_menu_row(f" Suggested value: {suggested_value} ", inner))
+    elif env_key == "LMSTUDIO_BASE_URL" and not current_value:
+        suggested_value = "http://127.0.0.1:1234/v1"
+        print(_menu_row(f" Suggested value: {suggested_value} ", inner))
     if prefix:
         print(_menu_row(f" Expected prefix: {prefix} ", inner))
     print(_menu_border(inner))
@@ -193,7 +209,7 @@ def _prompt_for_value(
     print(_menu_border(inner))
 
     key_input: list[str] = []
-    obscure_input = env_key != "OLLAMA_BASE_URL"
+    obscure_input = env_key not in {"OLLAMA_BASE_URL", "LMSTUDIO_BASE_URL"}
 
     while True:
         if key_input:
@@ -224,7 +240,7 @@ def _prompt_for_value(
 
     if key_input:
         return "".join(key_input)
-    if env_key == "OLLAMA_BASE_URL" and suggested_value:
+    if env_key in {"OLLAMA_BASE_URL", "LMSTUDIO_BASE_URL"} and suggested_value:
         return suggested_value
     return None
 
@@ -234,8 +250,9 @@ def _build_menu_rows(
 ) -> list[dict]:
     test_results = test_results or {}
     rows = []
+    local_providers = {"ollama", "lmstudio"}
     for provider, env_key, description, prefix in PROVIDERS:
-        is_local = provider == "ollama"
+        is_local = provider in local_providers
         has_key = bool(env_key and env_key in keys and keys[env_key])
         test_status = test_results.get(provider)
         rows.append(

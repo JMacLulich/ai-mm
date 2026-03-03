@@ -75,6 +75,16 @@ OLLAMA_ALIASES = {
     "llama": "llama3:latest",
 }
 
+# LM Studio Models (local, OpenAI-compatible endpoint)
+LMSTUDIO_MODELS = {
+    "qwen3.5:27b": "qwen3.5:27b",
+}
+
+LMSTUDIO_ALIASES = {
+    "lmstudio": "qwen3.5:27b",
+    "qwen3.5": "qwen3.5:27b",
+}
+
 # Model groups for multi-model reviews
 MODEL_GROUPS = {
     "mm": [
@@ -122,6 +132,10 @@ def get_provider_for_model(model: str) -> Optional[str]:
     # Check Ollama
     if model in OLLAMA_MODELS or model in OLLAMA_ALIASES:
         return "ollama"
+
+    # Check LM Studio
+    if model in LMSTUDIO_MODELS or model in LMSTUDIO_ALIASES:
+        return "lmstudio"
 
     return None
 
@@ -173,6 +187,12 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
     if model in OLLAMA_ALIASES:
         return "ollama", OLLAMA_MODELS[OLLAMA_ALIASES[model]]
 
+    # Try LM Studio
+    if model in LMSTUDIO_MODELS:
+        return "lmstudio", LMSTUDIO_MODELS[model]
+    if model in LMSTUDIO_ALIASES:
+        return "lmstudio", LMSTUDIO_MODELS[LMSTUDIO_ALIASES[model]]
+
     raise ValueError(f"Unknown model: {model}")
 
 
@@ -209,6 +229,8 @@ def get_model_display_name(api_model: str) -> str:
         "qwen2.5:14b-instruct": "Qwen 2.5 14B (Local)",
         "qwen2.5:7b-instruct": "Qwen 2.5 7B (Local)",
         "llama3:latest": "Llama 3 (Local)",
+        # LM Studio
+        "qwen3.5:27b": "Qwen 3.5 27B (LM Studio)",
     }
 
     return display_names.get(api_model, api_model)
@@ -338,6 +360,13 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "context_window": 8192,
             "description": "Local Llama 3",
         },
+        # LM Studio
+        "qwen3.5:27b": {
+            "speed": "medium",
+            "cost_tier": "free",
+            "context_window": 128000,
+            "description": "Local Qwen 3.5 27B via LM Studio",
+        },
     }
 
     return chars.get(
@@ -363,6 +392,7 @@ def list_all_models() -> Dict[str, list]:
         "google": list(GEMINI_MODELS.keys()),
         "anthropic": list(CLAUDE_MODELS.keys()),
         "ollama": list(OLLAMA_MODELS.keys()),
+        "lmstudio": list(LMSTUDIO_MODELS.keys()),
     }
 
 
@@ -378,6 +408,7 @@ def list_all_aliases() -> Dict[str, str]:
     all_aliases.update(GEMINI_ALIASES)
     all_aliases.update(CLAUDE_ALIASES)
     all_aliases.update(OLLAMA_ALIASES)
+    all_aliases.update(LMSTUDIO_ALIASES)
     return all_aliases
 
 

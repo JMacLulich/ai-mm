@@ -5,12 +5,13 @@ ai - Multi-model AI tooling for planning, code review, and stabilization
 Thin CLI wrapper around the api.py module.
 
 Usage:
+    ai --configure
     ai plan "prompt" [--model MODEL] [--no-cache]
     ai review [--model MODEL] [--focus AREA] [--no-cache]
     ai stabilize "goal" [--rounds N] [--mode MODE]
     ai cache stats|clear [--older-than HOURS]
     ai usage [--today|--week|--month] [--export FILE]
-    ai check-models [--gpt MODEL] [--claude MODEL] [--gemini MODEL] [--local MODEL]
+    ai check-models [--gpt MODEL] [--claude MODEL] [--gemini MODEL] [--local MODEL] [--lmstudio MODEL]
 
 Examples:
     ai plan "Build user authentication"
@@ -61,6 +62,7 @@ from claude_mm.config_tui import run_config_tui  # noqa: E402
 from claude_mm.models import MODEL_GROUPS  # noqa: E402
 from claude_mm.providers.anthropic import AnthropicProvider  # noqa: E402
 from claude_mm.providers.google import GoogleProvider  # noqa: E402
+from claude_mm.providers.lmstudio import LMStudioProvider  # noqa: E402
 from claude_mm.providers.ollama import OllamaProvider  # noqa: E402
 from claude_mm.providers.openai import OpenAIProvider  # noqa: E402
 from claude_mm.usage import get_usage_stats  # noqa: E402
@@ -349,6 +351,7 @@ def cmd_check_models(args):
         ("claude", args.claude, AnthropicProvider),
         ("gemini", args.gemini, GoogleProvider),
         ("local", args.local, OllamaProvider),
+        ("lmstudio", args.lmstudio, LMStudioProvider),
     ]
     all_ok = True
 
@@ -379,13 +382,18 @@ def main():
         description="Multi-model AI tooling for code review, planning, and stabilization",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument(
+        "--configure",
+        action="store_true",
+        help="Open interactive TUI configuration manager",
+    )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Review command
     review_parser = subparsers.add_parser("review", help="Review code changes")
     review_parser.add_argument(
         "--model",
-        help="Model to use (gpt, gemini, claude, opus, ollama, mm, all, fast)",
+        help="Model to use (gpt, gemini, claude, opus, ollama, lmstudio, mm, all, fast)",
     )
     review_parser.add_argument(
         "--focus",
@@ -506,8 +514,17 @@ def main():
         default="qwen2.5:14b-instruct",
         help="Local Ollama model to test (default: qwen2.5:14b-instruct)",
     )
+    check_parser.add_argument(
+        "--lmstudio",
+        default="qwen3.5:27b",
+        help="LM Studio model to test (default: qwen3.5:27b)",
+    )
 
     args = parser.parse_args()
+
+    if args.configure:
+        cmd_config(args)
+        return
 
     if not args.command:
         parser.print_help()

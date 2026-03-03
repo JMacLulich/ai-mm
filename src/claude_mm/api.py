@@ -226,9 +226,35 @@ def _review_multi(
     for t in threads:
         t.join()
 
+    def is_overload_error(error_message: str) -> bool:
+        msg = error_message.lower()
+        overload_markers = [
+            "503",
+            "service unavailable",
+            "unavailable",
+            "529",
+            "overloaded",
+        ]
+        return any(marker in msg for marker in overload_markers)
+
     if errors:
         for model, error in errors.items():
             print(f"Error reviewing with {model}: {error}")
+
+    overload_failures = sum(1 for error in errors.values() if is_overload_error(error))
+    if overload_failures >= 2 and "lmstudio" not in models and "lmstudio" not in results:
+        print(
+            "Detected repeated provider overloads (503/529). "
+            "Falling back to local LM Studio (qwen3.5:27b)."
+        )
+        try:
+            fallback_result = _review_single(
+                prompt, "lmstudio", system_prompt, use_cache, cache_ttl
+            )
+            results["lmstudio"] = fallback_result
+        except Exception as e:
+            errors["lmstudio"] = str(e)
+            print(f"Error reviewing with lmstudio: {e}")
 
     if not results:
         raise RuntimeError(
