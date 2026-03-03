@@ -6,6 +6,7 @@ Thin CLI wrapper around the api.py module.
 
 Usage:
     ai --configure
+    ai configure
     ai plan "prompt" [--model MODEL] [--no-cache]
     ai review [--model MODEL] [--focus AREA] [--no-cache]
     ai stabilize "goal" [--rounds N] [--mode MODE]
@@ -540,8 +541,9 @@ def main():
     usage_parser.add_argument("--month", action="store_true", help="This month's usage")
     usage_parser.add_argument("--export", help="Export to CSV file")
 
-    # Config command
+    # Config commands
     subparsers.add_parser("config", help="Interactive provider configuration")
+    subparsers.add_parser("configure", help="Open interactive TUI configuration manager")
 
     # Model access check command
     check_parser = subparsers.add_parser(
@@ -601,7 +603,7 @@ def main():
         cmd_cache(args)
     elif args.command == "usage":
         cmd_usage(args)
-    elif args.command == "config":
+    elif args.command in {"config", "configure"}:
         cmd_config(args)
     elif args.command == "check-models":
         cmd_check_models(args)

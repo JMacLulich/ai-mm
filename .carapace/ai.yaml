@@ -94,3 +94,19 @@ commands:
       --week: Show this week's usage
       --month: Show this month's usage
       --export=: Export to CSV file
+
+  - name: config
+    description: Interactive provider configuration (TUI)
+
+  - name: configure
+    description: Alias for interactive provider configuration (TUI)
+
+  - name: check-models
+    description: Check access to configured providers/models
+    flags:
+      --gpt=: GPT model to test
+      --claude=: Claude model to test
+      --gemini=: Gemini model to test
+      --local=: Local Ollama model to test
+      --lmstudio=: LM Studio model to test
+      --timeout=: Per-model timeout in seconds

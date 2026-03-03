@@ -30,6 +30,7 @@ Configure during installation or later with:
 
 ```bash
 ai config  # Interactive TUI for managing keys
+ai configure  # Alias for interactive TUI
 ```
 
 **Supported providers:**
@@ -86,6 +87,7 @@ ollama pull qwen2.5:14b
 
 # Configure Ollama endpoint for ai-mm
 ai config
+ai configure
 
 # Review with local model
 git diff | ai review --model ollama
@@ -127,6 +129,7 @@ ai-mm/
 ```bash
 # Interactive config UI
 ai config
+ai configure
 
 # Manual setup
 mkdir -p ~/.config/ai-mm

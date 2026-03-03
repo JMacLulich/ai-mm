@@ -9,7 +9,9 @@ from claude_mm.config_tui import (
     _fit_text,
     _menu_border,
     _menu_row,
+    _next_menu_index,
     _prompt_for_value,
+    _read_menu_key,
     _supports_color,
     load_existing_keys,
     mask_key,
@@ -199,6 +201,38 @@ class TestPromptForValue:
         )
 
         assert value == "http://127.0.0.1:1234/v1"
+
+
+class TestReadMenuKey:
+    def test_reads_csi_up_arrow(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\x1b[A"))
+        assert _read_menu_key() == "up"
+
+    def test_reads_csi_down_arrow(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\x1b[B"))
+        assert _read_menu_key() == "down"
+
+    def test_reads_ss3_up_arrow(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\x1bOA"))
+        assert _read_menu_key() == "up"
+
+    def test_reads_ss3_down_arrow(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\x1bOB"))
+        assert _read_menu_key() == "down"
+
+
+class TestNextMenuIndex:
+    def test_up_does_not_wrap_from_first_row(self):
+        assert _next_menu_index(0, "up", 7) == 0
+
+    def test_down_does_not_exceed_last_row(self):
+        assert _next_menu_index(6, "down", 7) == 6
+
+    def test_up_moves_to_previous_row(self):
+        assert _next_menu_index(3, "up", 7) == 2
+
+    def test_down_moves_to_next_row(self):
+        assert _next_menu_index(3, "down", 7) == 4
 
 
 class TestSaveAndLoadKeys:

@@ -89,6 +89,11 @@ main() {
         echo "🎯 Installing shell completions..."
         mkdir -p "$HOME/.config/carapace/specs"
         cp "$ROOT/.carapace/ai.yaml" "$HOME/.config/carapace/specs/"
+
+        # macOS Carapace may prefer Library/Application Support path.
+        local mac_specs_dir="$HOME/Library/Application Support/carapace/specs"
+        mkdir -p "$mac_specs_dir"
+        cp "$ROOT/.carapace/ai.yaml" "$mac_specs_dir/"
         echo "  ✓ ai.yaml"
     fi
 

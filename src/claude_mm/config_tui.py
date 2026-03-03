@@ -150,7 +150,7 @@ def _read_menu_key() -> str:
     ch = sys.stdin.read(1)
     if ch == "\x1b":
         nxt = sys.stdin.read(1)
-        if nxt == "[":
+        if nxt in {"[", "O"}:
             third = sys.stdin.read(1)
             if third == "A":
                 return "up"
@@ -411,6 +411,21 @@ def _show_testing_screen(provider: str) -> None:
     sys.stdout.flush()
 
 
+def _next_menu_index(current: int, key: str, row_count: int) -> int:
+    """Compute the next menu index without wrap-around.
+
+    Prevents accidental jumps from the first item to the final "Exit without saving"
+    row when pressing Up.
+    """
+    if row_count <= 0:
+        return 0
+    if key == "up":
+        return max(0, current - 1)
+    if key == "down":
+        return min(row_count - 1, current + 1)
+    return current
+
+
 def run_config_tui() -> bool:
     original_keys = load_existing_keys()
     keys = dict(original_keys)
@@ -436,10 +451,10 @@ def run_config_tui() -> bool:
             key = _read_menu_key()
 
             if key == "up":
-                idx = (idx - 1) % len(rows)
+                idx = _next_menu_index(idx, "up", len(rows))
                 last_error = ""
             elif key == "down":
-                idx = (idx + 1) % len(rows)
+                idx = _next_menu_index(idx, "down", len(rows))
                 last_error = ""
             elif key == "enter":
                 row = rows[idx]
