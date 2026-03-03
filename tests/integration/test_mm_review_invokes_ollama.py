@@ -36,7 +36,7 @@ def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, capsys):
 
     result = api.review(
         prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=MODEL_GROUPS["mm"],
+        models=["gpt-5.2", "gemini", "claude-opus-4-6", "ollama"],
         focus="architecture",
         use_cache=False,
     )
@@ -46,7 +46,7 @@ def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, capsys):
     assert "qwen2.5:14b-instruct" in called_models
     assert "Error reviewing with ollama:" in output
     assert "ollama" not in result.results
-    assert len(result.results) == len(MODEL_GROUPS["mm"]) - 1
+    assert len(result.results) == 3
 
 
 def test_mm_review_raises_when_all_models_fail(monkeypatch):
@@ -144,7 +144,7 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
 
     result = api.review(
         prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=MODEL_GROUPS["mm"],
+        models=["gpt-5.2", "gemini", "claude-opus-4-6", "ollama"],
         focus="architecture",
         use_cache=False,
     )

@@ -92,8 +92,10 @@ MODEL_GROUPS = {
         "gemini",
         "claude-opus-4-6",
         "ollama",
-    ],  # Multimode includes local model
-    "all": ["gpt-5.2", "gemini", "claude-opus-4-6", "ollama"],  # All providers
+        "lmstudio",
+    ],  # Multimode includes both local providers
+    "all": ["gpt-5.2", "gemini", "claude-opus-4-6", "ollama", "lmstudio"],
+    # All providers
     "fast": [
         "gpt-5.2-chat-latest",
         "gemini-3-flash-preview",
