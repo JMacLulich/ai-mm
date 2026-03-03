@@ -22,6 +22,7 @@ Example usage:
 """
 
 import asyncio
+import time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
 
@@ -212,13 +213,25 @@ def _review_multi(
 
     results = {}
     errors = {}
+    lock = threading.Lock()
 
     def review_thread(model_name):
+        start_time = time.perf_counter()
+        with lock:
+            print(f"Starting review with {model_name}...")
+
         try:
             result = _review_single(prompt, model_name, system_prompt, use_cache, cache_ttl)
-            results[model_name] = result
+            duration = time.perf_counter() - start_time
+            with lock:
+                results[model_name] = result
+                source = "cached" if result.cached else "live"
+                print(f"Completed {model_name} in {duration:.2f}s ({source})")
         except Exception as e:
-            errors[model_name] = str(e)
+            duration = time.perf_counter() - start_time
+            with lock:
+                errors[model_name] = str(e)
+                print(f"Error reviewing with {model_name}: {e} (after {duration:.2f}s)")
 
     threads = [threading.Thread(target=review_thread, args=(m,)) for m in models]
     for t in threads:
@@ -236,10 +249,6 @@ def _review_multi(
             "overloaded",
         ]
         return any(marker in msg for marker in overload_markers)
-
-    if errors:
-        for model, error in errors.items():
-            print(f"Error reviewing with {model}: {error}")
 
     local_providers = {"ollama", "lmstudio"}
     external_failure_count = 0
