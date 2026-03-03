@@ -13,9 +13,13 @@ class LMStudioProvider(Provider):
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
         super().__init__(api_key, **kwargs)
 
-        self.base_url = (
+        resolved_base_url = (
             base_url or os.getenv("LMSTUDIO_BASE_URL") or "http://127.0.0.1:1234/v1"
         ).rstrip("/")
+        if not resolved_base_url.endswith("/v1"):
+            resolved_base_url = f"{resolved_base_url}/v1"
+
+        self.base_url = resolved_base_url
         self.api_key = self.api_key or os.getenv("LMSTUDIO_API_KEY") or "lm-studio"
 
     def _client(self):
@@ -63,11 +67,27 @@ class LMStudioProvider(Provider):
             params.update(kwargs)
             response = client.chat.completions.create(**params)
 
+            if not getattr(response, "choices", None):
+                error_details = getattr(response, "error", None)
+                hint = (
+                    "Check LMSTUDIO_BASE_URL "
+                    "(OpenAI-compatible endpoints usually require a /v1 suffix)."
+                )
+                raise ProviderError(
+                    "LM Studio API returned no choices. "
+                    f"{hint} Raw error: {error_details or 'unknown'}"
+                )
+
+            text = self._extract_text(response)
+            if not text.strip():
+                hint = "Check LMSTUDIO_BASE_URL and model behavior for empty/think-only responses."
+                raise ProviderError(f"LM Studio returned empty response content. {hint}")
+
             input_tokens = response.usage.prompt_tokens if response.usage else 0
             output_tokens = response.usage.completion_tokens if response.usage else 0
 
             return ProviderResponse(
-                text=self._extract_text(response),
+                text=text,
                 model=model,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

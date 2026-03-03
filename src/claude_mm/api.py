@@ -24,7 +24,7 @@ Example usage:
 import asyncio
 import time
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from claude_mm.cache import cache_response, get_cached_response
 from claude_mm.config import load_config
@@ -72,6 +72,8 @@ def review(
     focus: str = "general",
     use_cache: bool = True,
     cache_ttl: Optional[int] = None,
+    on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
+    per_model_timeout: Optional[float] = None,
 ) -> Union[ReviewResult, MultiReviewResult]:
     """
     Perform code review with one or more AI models.
@@ -151,6 +153,8 @@ def review(
         system_prompt,
         use_cache,
         cache_ttl or config.get("cache_ttl_hours", 24),
+        on_result,
+        per_model_timeout,
     )
 
 
@@ -205,15 +209,21 @@ def _review_multi(
     system_prompt: str,
     use_cache: bool,
     cache_ttl: int,
+    on_result: Optional[Callable[[str, ReviewResult, float], None]] = None,
+    per_model_timeout: Optional[float] = None,
 ) -> MultiReviewResult:
     """Internal: Multi-model review using asyncio."""
     # For now, use threading for backward compatibility
     # TODO: Switch to pure asyncio in future
     import threading
+    import time as thread_time
 
     results = {}
     errors = {}
+    timed_out = set()
     lock = threading.Lock()
+    timeout_seconds = max(0.0, per_model_timeout or 0.0)
+    thread_start_times = {}
 
     def review_thread(model_name):
         start_time = time.perf_counter()
@@ -224,20 +234,62 @@ def _review_multi(
             result = _review_single(prompt, model_name, system_prompt, use_cache, cache_ttl)
             duration = time.perf_counter() - start_time
             with lock:
+                if model_name in timed_out:
+                    print(
+                        f"Late result ignored for {model_name} after timeout ({duration:.2f}s)",
+                    )
+                    return
                 results[model_name] = result
                 source = "cached" if result.cached else "live"
                 print(f"Completed {model_name} in {duration:.2f}s ({source})")
+            if on_result:
+                on_result(model_name, result, duration)
         except Exception as e:
             duration = time.perf_counter() - start_time
             with lock:
+                if model_name in timed_out:
+                    return
                 errors[model_name] = str(e)
                 print(f"Error reviewing with {model_name}: {e} (after {duration:.2f}s)")
 
-    threads = [threading.Thread(target=review_thread, args=(m,)) for m in models]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    threads = {m: threading.Thread(target=review_thread, args=(m,), daemon=True) for m in models}
+    for model_name, thread in threads.items():
+        thread_start_times[model_name] = thread_time.perf_counter()
+        thread.start()
+
+    if timeout_seconds > 0:
+        pending = set(models)
+        while pending:
+            with lock:
+                done = set(results) | set(errors) | set(timed_out)
+
+            pending -= done
+            if not pending:
+                break
+
+            now = thread_time.perf_counter()
+            for model_name in list(pending):
+                elapsed = now - thread_start_times[model_name]
+                thread = threads[model_name]
+                if elapsed >= timeout_seconds and thread.is_alive():
+                    with lock:
+                        if model_name in results or model_name in errors or model_name in timed_out:
+                            continue
+                        timed_out.add(model_name)
+                        errors[model_name] = f"timed out after {timeout_seconds:.1f}s"
+                        print(
+                            f"Timed out {model_name} after {timeout_seconds:.1f}s; continuing",
+                        )
+                    pending.remove(model_name)
+
+            thread_time.sleep(0.05)
+    else:
+        for thread in threads.values():
+            thread.join()
+
+    for thread in threads.values():
+        if not thread.is_alive():
+            thread.join(timeout=0)
 
     def is_overload_error(error_message: str) -> bool:
         msg = error_message.lower()
@@ -288,6 +340,8 @@ def _review_multi(
                 prompt, fallback_model, system_prompt, use_cache, cache_ttl
             )
             results[fallback_model] = fallback_result
+            if on_result:
+                on_result(fallback_model, fallback_result, 0.0)
             break
         except Exception as e:
             errors[fallback_model] = str(e)

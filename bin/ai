@@ -65,6 +65,7 @@ from claude_mm.providers.google import GoogleProvider  # noqa: E402
 from claude_mm.providers.lmstudio import LMStudioProvider  # noqa: E402
 from claude_mm.providers.ollama import OllamaProvider  # noqa: E402
 from claude_mm.providers.openai import OpenAIProvider  # noqa: E402
+from claude_mm.timeouts import supports_signal_timeout, timeout_guard  # noqa: E402
 from claude_mm.usage import get_usage_stats  # noqa: E402
 
 
@@ -91,6 +92,11 @@ def cmd_review(args):
         )
         if args.focus and args.focus != "general":
             print(f"📊 Focus: {args.focus}", file=sys.stderr)
+        if args.per_model_timeout and args.per_model_timeout > 0:
+            print(
+                f"⏱️  Per-model timeout: {args.per_model_timeout:.1f}s",
+                file=sys.stderr,
+            )
         print(file=sys.stderr)
     elif args.model == "all":
         models = MODEL_GROUPS["all"]
@@ -100,6 +106,11 @@ def cmd_review(args):
         )
         if args.focus and args.focus != "general":
             print(f"📊 Focus: {args.focus}", file=sys.stderr)
+        if args.per_model_timeout and args.per_model_timeout > 0:
+            print(
+                f"⏱️  Per-model timeout: {args.per_model_timeout:.1f}s",
+                file=sys.stderr,
+            )
         print(file=sys.stderr)
     elif args.model == "fast":
         models = MODEL_GROUPS["fast"]
@@ -109,6 +120,11 @@ def cmd_review(args):
         )
         if args.focus and args.focus != "general":
             print(f"📊 Focus: {args.focus}", file=sys.stderr)
+        if args.per_model_timeout and args.per_model_timeout > 0:
+            print(
+                f"⏱️  Per-model timeout: {args.per_model_timeout:.1f}s",
+                file=sys.stderr,
+            )
         print(file=sys.stderr)
     else:
         models = [args.model] if args.model else None
@@ -116,23 +132,40 @@ def cmd_review(args):
     # Run review
     try:
         if models and len(models) > 1:
+            import threading
+
+            output_lock = threading.Lock()
+            printed_models = set()
+
+            def on_result(model_name, model_result, duration_seconds):
+                with output_lock:
+                    if printed_models:
+                        print("\n" + "=" * 80, file=sys.stdout)
+                    printed_models.add(model_name)
+
+                    source = "cached" if model_result.cached else "live"
+                    print("=" * 80, file=sys.stdout)
+                    print(
+                        f"{model_name.upper()} REVIEW "
+                        f"({duration_seconds:.2f}s, {source})",
+                        file=sys.stdout,
+                    )
+                    print("=" * 80, file=sys.stdout)
+                    print(model_result.text, file=sys.stdout)
+                    sys.stdout.flush()
+
             # Multi-model review
             result = review(
                 prompt,
                 models=models,
                 focus=args.focus,
                 use_cache=not args.no_cache,
+                on_result=on_result,
+                per_model_timeout=args.per_model_timeout,
             )
 
-            # Display results
-            for i, (model, res) in enumerate(result):
-                if i > 0:
-                    print("\n" + "="*80, file=sys.stdout)
-                print("="*80, file=sys.stdout)
-                print(f"{model.upper()} REVIEW", file=sys.stdout)
-                print("="*80, file=sys.stdout)
-                print(res.text, file=sys.stdout)
-
+            # Show per-model costs
+            for model, res in result:
                 if not res.cached and res.cost:
                     print(f"\n\n💰 {model.upper()} cost: ${res.cost:.4f}", file=sys.stderr)
 
@@ -354,17 +387,29 @@ def cmd_check_models(args):
         ("lmstudio", args.lmstudio, LMStudioProvider),
     ]
     all_ok = True
+    timeout_seconds = max(0.0, args.timeout)
+    has_timeout_support = supports_signal_timeout()
+
+    if timeout_seconds > 0 and not has_timeout_support:
+        print(
+            "Warning: per-model timeout is not supported on this platform; running without timeout",
+            file=sys.stderr,
+        )
 
     for provider_name, model, provider_cls in checks:
         try:
-            provider = provider_cls()
-            response = provider.complete(
-                prompt="Reply with OK",
-                model=model,
-                temperature=0,
-            )
+            with timeout_guard(timeout_seconds):
+                provider = provider_cls()
+                response = provider.complete(
+                    prompt="Reply with OK",
+                    model=model,
+                    temperature=0,
+                )
             text = (response.text or "").strip()
             print(f"{provider_name}/{model}: OK - {text[:80]}")
+        except TimeoutError:
+            all_ok = False
+            print(f"{provider_name}/{model}: FAIL - timed out after {timeout_seconds:.1f}s")
         except Exception as e:
             all_ok = False
             print(f"{provider_name}/{model}: FAIL - {e}")
@@ -400,6 +445,15 @@ def main():
         choices=["general", "security", "performance", "architecture", "testing"],
         default="general",
         help="Review focus area",
+    )
+    review_parser.add_argument(
+        "--per-model-timeout",
+        type=float,
+        default=0.0,
+        help=(
+            "Per-model timeout in seconds for multi-model reviews "
+            "(mm/all/fast, 0 disables)"
+        ),
     )
     review_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 
@@ -518,6 +572,12 @@ def main():
         "--lmstudio",
         default="qwen3.5:27b",
         help="LM Studio model to test (default: qwen3.5:27b)",
+    )
+    check_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=20.0,
+        help="Per-model timeout in seconds (default: 20, use 0 to disable)",
     )
 
     args = parser.parse_args()
