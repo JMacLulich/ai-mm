@@ -107,3 +107,49 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
 
     assert "Detected repeated provider overloads (503/529)" in output
     assert "lmstudio" in result.results
+
+
+def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, capsys):
+    """When external providers fail and no local succeeds, local fallback is attempted."""
+
+    class StubProvider:
+        def complete(self, prompt, model, system_prompt=None):
+            if model in {
+                "gpt-5.2",
+                "gemini-3.1-pro-preview",
+                "claude-opus-4-6",
+                "qwen2.5:14b-instruct",
+            }:
+                raise Exception(f"{model} unavailable")
+
+            if model == "qwen3.5:27b":
+                return ProviderResponse(
+                    text="ok from lmstudio",
+                    model="qwen3.5:27b",
+                    input_tokens=1,
+                    output_tokens=1,
+                    cost=Decimal("0"),
+                )
+
+            return ProviderResponse(
+                text=f"ok from {model}",
+                model=model,
+                input_tokens=1,
+                output_tokens=1,
+                cost=Decimal("0"),
+            )
+
+    monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
+    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
+
+    result = api.review(
+        prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
+        models=MODEL_GROUPS["mm"],
+        focus="architecture",
+        use_cache=False,
+    )
+
+    output = capsys.readouterr().out
+
+    assert "External providers failed and no local review succeeded yet" in output
+    assert "lmstudio" in result.results

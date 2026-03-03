@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from claude_mm.cache import cache_response, get_cached_response
 from claude_mm.config import load_config
-from claude_mm.models import normalize_model_name
+from claude_mm.models import get_provider_for_model, normalize_model_name
 from claude_mm.planning import DEFAULT_CONFIDENCE_THRESHOLD, generate_plan_output
 from claude_mm.providers import get_provider
 from claude_mm.providers.base import ProviderResponse
@@ -241,20 +241,48 @@ def _review_multi(
         for model, error in errors.items():
             print(f"Error reviewing with {model}: {error}")
 
+    local_providers = {"ollama", "lmstudio"}
+    external_failure_count = 0
+    local_success_count = 0
+
+    for model_name in models:
+        provider_name = get_provider_for_model(model_name)
+        if provider_name in local_providers and model_name in results:
+            local_success_count += 1
+        if provider_name not in local_providers and model_name in errors:
+            external_failure_count += 1
+
     overload_failures = sum(1 for error in errors.values() if is_overload_error(error))
-    if overload_failures >= 2 and "lmstudio" not in models and "lmstudio" not in results:
+
+    fallback_candidates = []
+    if overload_failures >= 2 and "lmstudio" not in results and "lmstudio" not in models:
         print(
             "Detected repeated provider overloads (503/529). "
             "Falling back to local LM Studio (qwen3.5:27b)."
         )
+        fallback_candidates.append("lmstudio")
+
+    if external_failure_count > 0 and local_success_count == 0:
+        for local_model in ("ollama", "lmstudio"):
+            if local_model not in results and local_model not in fallback_candidates:
+                fallback_candidates.append(local_model)
+
+        if fallback_candidates:
+            print(
+                "External providers failed and no local review succeeded yet. "
+                "Trying local fallback model(s)."
+            )
+
+    for fallback_model in fallback_candidates:
         try:
             fallback_result = _review_single(
-                prompt, "lmstudio", system_prompt, use_cache, cache_ttl
+                prompt, fallback_model, system_prompt, use_cache, cache_ttl
             )
-            results["lmstudio"] = fallback_result
+            results[fallback_model] = fallback_result
+            break
         except Exception as e:
-            errors["lmstudio"] = str(e)
-            print(f"Error reviewing with lmstudio: {e}")
+            errors[fallback_model] = str(e)
+            print(f"Error reviewing with {fallback_model}: {e}")
 
     if not results:
         raise RuntimeError(
