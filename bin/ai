@@ -443,9 +443,9 @@ def main():
     )
     review_parser.add_argument(
         "--focus",
-        choices=["general", "security", "performance", "architecture", "testing"],
+        choices=["general", "review", "security", "performance", "architecture", "testing"],
         default="general",
-        help="Review focus area",
+        help="Review focus area (use 'review' for rigorous PR review format)",
     )
     review_parser.add_argument(
         "--per-model-timeout",

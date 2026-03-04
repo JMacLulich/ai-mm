@@ -8,6 +8,7 @@ Get code reviews from GPT, Gemini, Claude, and local LLMs (Ollama) - in parallel
 - **Works offline**: Use Ollama with Qwen or Llama for free, private reviews on your machine.
 - **Cost-aware**: Every API call tracked, cached responses save money.
 - **Architecture-focused**: Reviews check DRY, Single Responsibility, and Least Astonishment principles.
+- **Rigorous PR review mode**: `--focus review` enforces staff-level multi-pass risk analysis.
 
 ## Installation
 
@@ -60,6 +61,9 @@ git diff | ai review --model ollama
 # Architecture review
 git diff | ai review --model mm --focus architecture
 
+# Rigorous staff-level PR review format
+git diff | ai review --model mm --focus review
+
 # Planning
 ai plan "Add user authentication"
 ai plan "Design resilient background jobs" --depth deep --rounds 3 --strict
@@ -75,6 +79,17 @@ ai usage --week
 ai cache stats
 ai cache clear
 ```
+
+### Review Focus Areas
+
+Use `--focus` to bias what the models prioritize:
+
+- `review` - Rigorous staff-level PR review with structured multi-pass output
+- `general` - Broad code review across correctness, quality, and risk
+- `security` - Vulnerabilities, validation gaps, auth/authz issues
+- `performance` - Efficiency, query patterns, allocations, and hot paths
+- `architecture` - Design quality, boundaries, coupling, and maintainability
+- `testing` - Coverage gaps, edge cases, determinism, and test quality
 
 ## Local LLM Support
 

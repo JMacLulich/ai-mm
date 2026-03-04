@@ -63,11 +63,12 @@ Use `AskUserQuestion`:
 - Question: "What focus do you want for the multi-model review?"
 - Header: "Review Focus"
 - Options:
-  1. "General (Recommended)" - "Comprehensive analysis covering all aspects"
-  2. "Security" - "Focus on security vulnerabilities and data safety"
-  3. "Performance" - "Focus on performance issues and optimizations"
-  4. "Architecture" - "Focus on design patterns and architecture"
-  5. "Testing (QA)" - "Focus on test coverage, testability, edge cases, and quality assurance"
+  1. "Review (Recommended)" - "Rigorous staff-level multi-pass PR review"
+  2. "General" - "Comprehensive analysis covering all aspects"
+  3. "Security" - "Focus on security vulnerabilities and data safety"
+  4. "Performance" - "Focus on performance issues and optimizations"
+  5. "Architecture" - "Focus on design patterns and architecture"
+  6. "Testing (QA)" - "Focus on test coverage, testability, edge cases, and quality assurance"
 
 ### Step 4: Run Multi-Model Review
 
