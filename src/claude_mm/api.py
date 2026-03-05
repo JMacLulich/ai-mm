@@ -117,6 +117,14 @@ def review(
 
     system_prompt = get_review_system_prompt(focus)
 
+    effective_timeout = per_model_timeout
+    if len(model_list) > 1 and effective_timeout is None:
+        configured_timeout = config.get("review_per_model_timeout_seconds", 45)
+        try:
+            effective_timeout = float(configured_timeout)
+        except (TypeError, ValueError):
+            effective_timeout = 45.0
+
     # Single model review
     if len(model_list) == 1:
         return _review_single(
@@ -135,7 +143,7 @@ def review(
         use_cache,
         cache_ttl or config.get("cache_ttl_hours", 24),
         on_result,
-        per_model_timeout,
+        effective_timeout,
     )
 
 
@@ -464,6 +472,7 @@ async def review_async(
     focus: str = "general",
     use_cache: bool = True,
     cache_ttl: Optional[int] = None,
+    per_model_timeout: Optional[float] = None,
 ) -> Union[ReviewResult, MultiReviewResult]:
     """Async version of review(). See review() for documentation."""
     config = load_config()
@@ -478,6 +487,14 @@ async def review_async(
 
     system_prompt = get_review_system_prompt(focus)
 
+    effective_timeout = per_model_timeout
+    if len(model_list) > 1 and effective_timeout is None:
+        configured_timeout = config.get("review_per_model_timeout_seconds", 45)
+        try:
+            effective_timeout = float(configured_timeout)
+        except (TypeError, ValueError):
+            effective_timeout = 45.0
+
     # Single model
     if len(model_list) == 1:
         return await _review_single_async(
@@ -488,28 +505,56 @@ async def review_async(
             cache_ttl or config.get("cache_ttl_hours", 24),
         )
 
-    # Multi-model (parallel with asyncio)
-    tasks = [
-        _review_single_async(
-            prompt,
-            m,
-            system_prompt,
-            use_cache,
-            cache_ttl or config.get("cache_ttl_hours", 24),
-        )
-        for m in model_list
-    ]
-    results_list = await asyncio.gather(*tasks, return_exceptions=True)
+    # Multi-model (parallel with asyncio, per-model timeout)
+    timeout_seconds = max(0.0, effective_timeout or 0.0)
 
-    # Build results dict
+    async def run_model(model_name: str):
+        start = time.perf_counter()
+        try:
+            task = _review_single_async(
+                prompt,
+                model_name,
+                system_prompt,
+                use_cache,
+                cache_ttl or config.get("cache_ttl_hours", 24),
+            )
+            if timeout_seconds > 0:
+                result = await asyncio.wait_for(task, timeout=timeout_seconds)
+            else:
+                result = await task
+
+            duration = time.perf_counter() - start
+            return model_name, result, duration, None
+        except asyncio.TimeoutError:
+            duration = time.perf_counter() - start
+            return model_name, None, duration, f"timed out after {timeout_seconds:.1f}s"
+        except Exception as exc:
+            duration = time.perf_counter() - start
+            return model_name, None, duration, str(exc)
+
+    tasks = [run_model(m) for m in model_list]
+    results_list = await asyncio.gather(*tasks)
+
+    errors = {}
     results = {}
-    for i, model_name in enumerate(model_list):
-        if isinstance(results_list[i], Exception):
-            print(f"Error reviewing with {model_name}: {results_list[i]}")
+    for model_name, result, duration, error in results_list:
+        if error:
+            print(f"Error reviewing with {model_name}: {error} (after {duration:.2f}s)")
+            errors[model_name] = error
+        elif result is not None:
+            source = "cached" if result.cached else "live"
+            print(f"Completed {model_name} in {duration:.2f}s ({source})")
+            results[model_name] = result
         else:
-            results[model_name] = results_list[i]
+            errors[model_name] = "unknown error"
 
-    return MultiReviewResult(results)
+    if not results:
+        raise RuntimeError(
+            "All review models failed after retry attempts. "
+            "Configure at least one working provider and try again."
+        )
+
+    return MultiReviewResult(results, errors=errors)
 
 
 async def _review_single_async(

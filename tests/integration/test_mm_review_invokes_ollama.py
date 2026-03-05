@@ -1,6 +1,7 @@
 """Integration tests for multimode review provider invocation."""
 
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -153,3 +154,42 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
 
     assert "External providers failed and no local review succeeded yet" in output
     assert "lmstudio" in result.results
+
+
+def test_mm_review_aggregates_results_when_one_model_times_out(monkeypatch):
+    """Timed-out model should not block successful model results."""
+
+    class StubProvider:
+        def complete(self, prompt, model, system_prompt=None):
+            if model == "gpt-5.2":
+                time.sleep(0.2)
+                return ProviderResponse(
+                    text="late gpt result",
+                    model=model,
+                    input_tokens=1,
+                    output_tokens=1,
+                    cost=Decimal("0"),
+                )
+
+            return ProviderResponse(
+                text=f"ok from {model}",
+                model=model,
+                input_tokens=1,
+                output_tokens=1,
+                cost=Decimal("0"),
+            )
+
+    monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
+    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
+
+    result = api.review(
+        prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
+        models=["gpt-5.2", "gemini"],
+        focus="architecture",
+        use_cache=False,
+        per_model_timeout=0.05,
+    )
+
+    assert "gemini" in result.results
+    assert "gpt-5.2" not in result.results
+    assert result.errors["gpt-5.2"].startswith("timed out after")
