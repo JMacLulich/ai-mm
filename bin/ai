@@ -132,6 +132,15 @@ def cmd_review(args):
 
     # Run review
     try:
+        effective_timeout = args.per_model_timeout
+        if models and len(models) > 1 and effective_timeout < 0:
+            effective_timeout = 45.0
+            print(
+                "⏱️  Using default per-model timeout: 45.0s "
+                "(set --per-model-timeout 0 to disable)",
+                file=sys.stderr,
+            )
+
         if models and len(models) > 1:
             import threading
 
@@ -162,7 +171,7 @@ def cmd_review(args):
                 focus=args.focus,
                 use_cache=not args.no_cache,
                 on_result=on_result,
-                per_model_timeout=args.per_model_timeout,
+                per_model_timeout=effective_timeout,
             )
 
             # Show per-model costs
@@ -173,6 +182,11 @@ def cmd_review(args):
             # Show total cost
             if result.total_cost > 0:
                 print(f"\n\n💰 Total multimode cost: ${result.total_cost:.4f}", file=sys.stderr)
+
+            if result.errors:
+                print("\n⚠️  Models with errors:", file=sys.stderr)
+                for model_name, error in result.errors.items():
+                    print(f"  - {model_name}: {error}", file=sys.stderr)
 
         else:
             # Single model review
@@ -450,10 +464,10 @@ def main():
     review_parser.add_argument(
         "--per-model-timeout",
         type=float,
-        default=0.0,
+        default=-1.0,
         help=(
             "Per-model timeout in seconds for multi-model reviews "
-            "(mm/all/fast, 0 disables)"
+            "(mm/all/fast, default 45s, 0 disables)"
         ),
     )
     review_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")

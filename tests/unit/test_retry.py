@@ -24,11 +24,13 @@ def test_retry_with_backoff_success():
 
 def test_retry_with_backoff_eventual_success():
     """Test retry decorator with eventual success."""
-    mock_func = Mock(side_effect=[
-        Exception("503 Service Unavailable"),  # Fail 1
-        Exception("503 Service Unavailable"),  # Fail 2
-        "success"  # Success on 3rd attempt
-    ])
+    mock_func = Mock(
+        side_effect=[
+            Exception("503 Service Unavailable"),  # Fail 1
+            Exception("503 Service Unavailable"),  # Fail 2
+            "success",  # Success on 3rd attempt
+        ]
+    )
     decorated = retry_with_backoff(max_attempts=3, initial_delay=0.01)(mock_func)
 
     result = decorated()
@@ -57,3 +59,18 @@ def test_retry_with_backoff_no_retry_on_auth_error():
         decorated()
 
     assert mock_func.call_count == 1  # No retries
+
+
+def test_retry_logs_include_provider_and_model(capsys):
+    """Retry log lines include provider/model context when available."""
+
+    class FakeProvider:
+        @retry_with_backoff(max_attempts=2, initial_delay=0.01)
+        def complete(self, prompt, model="fake-model"):
+            raise Exception("429 rate limit")
+
+    with pytest.raises(Exception, match="429 rate limit"):
+        FakeProvider().complete("test", model="demo-model")
+
+    stderr = capsys.readouterr().err
+    assert "[fake/demo-model]" in stderr

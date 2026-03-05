@@ -55,8 +55,13 @@ class ReviewResult:
 class MultiReviewResult:
     """Result from a multi-model review."""
 
-    def __init__(self, results: Dict[str, ReviewResult]):
+    def __init__(
+        self,
+        results: Dict[str, ReviewResult],
+        errors: Optional[Dict[str, str]] = None,
+    ):
         self.results = results
+        self.errors = errors or {}
         self.total_cost = sum(r.cost for r in results.values() if r.cost)
 
     def __getitem__(self, model: str) -> ReviewResult:
@@ -329,7 +334,7 @@ def _review_multi(
             "Configure at least one working provider and try again."
         )
 
-    return MultiReviewResult(results)
+    return MultiReviewResult(results, errors=errors)
 
 
 def plan(
