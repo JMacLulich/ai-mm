@@ -100,8 +100,13 @@ def estimate_cost_from_text(
 
     cost = estimate_cost(model, input_tokens, expected_output_tokens, cached_tokens)
 
-    # Pro models are expensive, mark as estimated
-    is_estimated = "pro" in model.lower()
+    try:
+        provider, api_model = normalize_model_name(model)
+        pricing = get_model_pricing(provider, api_model)
+    except (ValueError, Exception):
+        pricing = None
+
+    is_estimated = bool(pricing and pricing.get("estimated"))
 
     return {
         "model": model,
@@ -110,6 +115,7 @@ def estimate_cost_from_text(
         "cached_tokens": cached_tokens,
         "estimated_cost": cost,
         "cost_formatted": f"${cost:.4f}",
+        "estimated": is_estimated,
         "is_estimated": is_estimated,
     }
 

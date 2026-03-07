@@ -26,56 +26,56 @@ _GPT_INSTANT_PRICING = {
     "input": 0.40,  # $0.40 per 1M tokens
     "output": 1.60,  # $1.60 per 1M tokens
     "cached": 0.04,  # 90% discount on cached input
-    "is_estimated": False,
+    "estimated": False,
 }
 
 _GPT_STANDARD_PRICING = {
     "input": 1.75,  # $1.75 per 1M tokens
     "output": 14.00,  # $14.00 per 1M tokens
     "cached": 0.175,  # 90% discount on cached input
-    "is_estimated": False,
+    "estimated": False,
 }
 
 _GPT_54_PRICING = {
     "input": 1.75,  # Estimated at GPT-5.2 parity until refreshed
     "output": 14.00,
     "cached": 0.175,
-    "is_estimated": True,
+    "estimated": True,
 }
 
 _GPT_PRO_PRICING = {
     "input": 8.75,  # $8.75 per 1M tokens (estimated 5x standard)
     "output": 70.00,  # $70.00 per 1M tokens (estimated 5x standard)
     "cached": 0.875,  # 90% discount on cached input
-    "is_estimated": True,  # Pro pricing is estimated
+    "estimated": True,  # Pro pricing is estimated
 }
 
 _GEMINI_FLASH_PRICING = {
     "input": 0.075,  # $0.075 per 1M tokens (Google Gemini 3 Flash)
     "output": 0.30,  # $0.30 per 1M tokens
     "cached": 0.01875,  # 75% discount on cached input
-    "is_estimated": False,
+    "estimated": False,
 }
 
 _GEMINI_PRO_PRICING = {
     "input": 1.25,
     "output": 10.00,
     "cached": 0.3125,  # 75% discount on cached input
-    "is_estimated": True,
+    "estimated": True,
 }
 
 _CLAUDE_SONNET_PRICING = {
     "input": 3.00,  # $3.00 per 1M tokens (Claude Sonnet 4.5)
     "output": 15.00,  # $15.00 per 1M tokens
     "cached": 0.30,  # 90% discount on cached input
-    "is_estimated": True,  # Claude pricing is approximate
+    "estimated": True,  # Claude pricing is approximate
 }
 
 _CLAUDE_OPUS_PRICING = {
     "input": 5.00,
     "output": 25.00,
     "cached": 0.50,  # 90% discount on cached input
-    "is_estimated": True,
+    "estimated": True,
 }
 
 # Model aliases with pricing
@@ -178,7 +178,7 @@ def estimate_cost_from_text(
     cost = estimate_cost(model, input_tokens, expected_output_tokens, cached_tokens)
 
     pricing = PRICING.get(model, {})
-    is_estimated = pricing.get("is_estimated", True)  # Default to True for safety
+    is_estimated = pricing.get("estimated", True)  # Default to True for safety
 
     return {
         "model": model,
@@ -187,6 +187,7 @@ def estimate_cost_from_text(
         "cached_tokens": cached_tokens,
         "estimated_cost": cost,
         "cost_formatted": f"${cost:.4f}",
+        "estimated": is_estimated,
         "is_estimated": is_estimated,
     }
 
@@ -211,7 +212,7 @@ def format_cost_warning(model: str, estimated_cost: float, operation: str = "ope
         warning_level = "✓ Low cost"
 
     pricing_note = ""
-    if PRICING.get(model, {}).get("is_estimated"):
+    if PRICING.get(model, {}).get("estimated"):
         pricing_note = "Note: Pricing for this model is estimated.\n"
 
     return f"""
