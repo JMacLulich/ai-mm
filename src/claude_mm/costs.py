@@ -138,14 +138,21 @@ def format_cost_warning(model: str, estimated_cost: float, operation: str = "ope
         pricing = get_model_pricing(provider, api_model)
         input_price = pricing.get("input", 0) if pricing else 0
         output_price = pricing.get("output", 0) if pricing else 0
+        pricing_note = (
+            "Note: Pricing for this model is estimated.\n"
+            if pricing and pricing.get("estimated")
+            else ""
+        )
     except (ValueError, Exception):
         input_price = 0
         output_price = 0
+        pricing_note = ""
 
     return f"""
 {warning_level}: {operation}
 Model: {model}
 Estimated cost: ${estimated_cost:.4f}
+{pricing_note}
 
 Billing rates (per 1M tokens):
   Input:  ${input_price:.2f}

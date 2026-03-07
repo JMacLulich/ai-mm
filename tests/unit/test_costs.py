@@ -63,6 +63,12 @@ def test_format_cost_warning():
     assert "test operation" in warning
 
 
+def test_format_cost_warning_marks_estimated_models():
+    """Estimated pricing models are clearly labeled."""
+    warning = format_cost_warning("gpt-5.4", 0.05, "test operation")
+    assert "Pricing for this model is estimated" in warning
+
+
 def test_should_warn_about_cost():
     """Test cost warning threshold."""
     model = "gpt-5.2-instant"

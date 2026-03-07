@@ -15,7 +15,7 @@ import yaml
 
 DEFAULT_PRICING = {
     "openai": {
-        "gpt-5.4": {"input": 1.75, "output": 14.00},  # Estimated at GPT-5.2 parity
+        "gpt-5.4": {"input": 1.75, "output": 14.00, "estimated": True},
         "gpt-5.2-chat-latest": {"input": 0.40, "output": 1.60},  # GPT-5.2 Instant (fast)
         "gpt-5.2": {"input": 1.75, "output": 14.00},  # GPT-5.2 Thinking (standard)
         "gpt-5.2-pro": {"input": 21.00, "output": 84.00},  # GPT-5.2 Pro (expensive)
@@ -106,10 +106,17 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
     """
     pricing = load_pricing()
     provider_pricing = pricing.get(provider, {})
+    default_provider_pricing = DEFAULT_PRICING.get(provider, {})
 
     # Try exact match first
     if model in provider_pricing:
-        return provider_pricing[model]
+        merged_pricing = dict(default_provider_pricing.get(model, {}))
+        merged_pricing.update(provider_pricing[model])
+        return merged_pricing
+
+    # Prefer embedded exact match over stale provider fallbacks so new model metadata is preserved.
+    if model in default_provider_pricing:
+        return default_provider_pricing[model]
 
     # Try to find a default for the provider from loaded pricing
     if provider == "openai":
@@ -130,10 +137,6 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
                 return provider_pricing[fallback]
 
     # Fall back to embedded defaults when user pricing file is stale
-    default_provider_pricing = DEFAULT_PRICING.get(provider, {})
-    if model in default_provider_pricing:
-        return default_provider_pricing[model]
-
     if provider == "openai":
         for fallback in ["gpt-5.4", "gpt-5.2", "gpt-5.2-chat-latest"]:
             if fallback in default_provider_pricing:

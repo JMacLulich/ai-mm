@@ -36,6 +36,13 @@ _GPT_STANDARD_PRICING = {
     "is_estimated": False,
 }
 
+_GPT_54_PRICING = {
+    "input": 1.75,  # Estimated at GPT-5.2 parity until refreshed
+    "output": 14.00,
+    "cached": 0.175,
+    "is_estimated": True,
+}
+
 _GPT_PRO_PRICING = {
     "input": 8.75,  # $8.75 per 1M tokens (estimated 5x standard)
     "output": 70.00,  # $70.00 per 1M tokens (estimated 5x standard)
@@ -78,12 +85,12 @@ _CLAUDE_OPUS_PRICING = {
 # accepts any alias for standalone cost estimation
 PRICING = {
     # GPT models
-    "gpt-5.4": _GPT_STANDARD_PRICING.copy(),
+    "gpt-5.4": _GPT_54_PRICING.copy(),
     "gpt-5.2-instant": _GPT_INSTANT_PRICING.copy(),
-    "gpt-5.2-chat-latest": _GPT_STANDARD_PRICING.copy(),
+    "gpt-5.2-chat-latest": _GPT_INSTANT_PRICING.copy(),
     "gpt-5.2": _GPT_STANDARD_PRICING.copy(),
-    "gpt-5": _GPT_STANDARD_PRICING.copy(),
-    "gpt": _GPT_STANDARD_PRICING.copy(),
+    "gpt-5": _GPT_54_PRICING.copy(),
+    "gpt": _GPT_54_PRICING.copy(),
     "gpt-5.2-pro": _GPT_PRO_PRICING.copy(),
     # Gemini models
     "gemini": _GEMINI_PRO_PRICING.copy(),
@@ -119,7 +126,7 @@ def estimate_cost(
     Estimate cost for an API call.
 
     Args:
-        model: Model name (e.g., "gpt-5.2", "gpt-5.2-instant", "gpt-5.2-pro")
+        model: Model name (e.g., "gpt-5.4", "gpt-5.2-instant", "gpt-5.2-pro")
         input_tokens: Number of input tokens
         output_tokens: Number of output tokens
         cached_tokens: Number of cached input tokens (90% discount)
@@ -203,10 +210,15 @@ def format_cost_warning(model: str, estimated_cost: float, operation: str = "ope
     else:
         warning_level = "✓ Low cost"
 
+    pricing_note = ""
+    if PRICING.get(model, {}).get("is_estimated"):
+        pricing_note = "Note: Pricing for this model is estimated.\n"
+
     return f"""
 {warning_level}: {operation}
 Model: {model}
 Estimated cost: ${estimated_cost:.4f}
+{pricing_note}
 
 Billing rates (per 1M tokens):
   Input:  ${PRICING.get(model, {}).get("input", 0):.2f}

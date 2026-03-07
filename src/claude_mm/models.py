@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 # OpenAI Models
 OPENAI_MODELS = {
     # User-facing name -> API name
-    "gpt-5.4": "gpt-5.4",  # Latest thinking model for deep review/planning
+    "gpt-5.4": "gpt-5.4",  # Latest thinking model for deep review
     "gpt-5.2-chat-latest": "gpt-5.2-chat-latest",  # Fast workhorse (Instant)
     "gpt-5.2": "gpt-5.2",  # Thinking model for complex work
     "gpt-5.2-pro": "gpt-5.2-pro",  # Premium model, highest quality

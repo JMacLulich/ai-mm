@@ -35,7 +35,7 @@ class OpenAIProvider(Provider):
     def complete(
         self,
         prompt: str,
-        model: str = "gpt-5.4",
+        model: str = "gpt-5.2",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -46,7 +46,7 @@ class OpenAIProvider(Provider):
 
         Args:
             prompt: User prompt
-            model: Model identifier (e.g., 'gpt-5.4', 'gpt-4o')
+            model: Model identifier (e.g., 'gpt-5.2', 'gpt-4o')
             system_prompt: Optional system prompt
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
@@ -107,7 +107,7 @@ class OpenAIProvider(Provider):
     async def complete_async(
         self,
         prompt: str,
-        model: str = "gpt-5.4",
+        model: str = "gpt-5.2",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
