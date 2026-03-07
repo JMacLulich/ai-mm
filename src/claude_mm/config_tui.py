@@ -17,7 +17,7 @@ import tty
 from claude_mm.env import CONFIG_DIR, ENV_FILE, load_env_file, save_env_file
 
 PROVIDERS = [
-    ("openai", "OPENAI_API_KEY", "GPT-5.2 (reviews)", "sk-"),
+    ("openai", "OPENAI_API_KEY", "GPT-5.4 (reviews)", "sk-"),
     ("google", "GOOGLE_AI_API_KEY", "Gemini 3.1 Pro (reviews)", None),
     ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
     ("ollama", "OLLAMA_BASE_URL", "Local LLM endpoint URL", "http(s)://..."),

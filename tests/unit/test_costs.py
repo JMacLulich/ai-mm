@@ -37,8 +37,8 @@ def test_estimate_cost():
     cost_instant = estimate_cost("gpt-5.2-instant", input_tokens, output_tokens)
     assert cost_instant > 0
 
-    # GPT-5.2 (more expensive)
-    cost_standard = estimate_cost("gpt-5.2", input_tokens, output_tokens)
+    # GPT-5.4 (deeper review default)
+    cost_standard = estimate_cost("gpt-5.4", input_tokens, output_tokens)
     assert cost_standard >= cost_instant
 
     # Gemini (cheapest)

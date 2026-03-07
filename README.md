@@ -35,7 +35,7 @@ ai configure  # Alias for interactive TUI
 ```
 
 **Supported providers:**
-- **OpenAI** - GPT-5.2 models
+- **OpenAI** - GPT-5.4 and GPT-5.2 models
 - **Google** - Gemini 3 Pro
 - **Anthropic** - Claude Opus 4.5
 - **Ollama** - Local LLMs (set `OLLAMA_BASE_URL`)

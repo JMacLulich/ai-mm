@@ -10,7 +10,7 @@ Caching Support:
 - Anthropic Claude: Supports prompt caching with 90% discount on cached input tokens
 
 Pricing Accuracy:
-- OpenAI GPT-5.2: Confirmed from official pricing page
+- OpenAI GPT-5.4: Estimated at GPT-5.2 parity until pricing is refreshed
 - Google Gemini: Confirmed from official pricing page
 - Anthropic Claude: Estimated pricing (verify with Anthropic for exact rates)
 """
@@ -78,6 +78,7 @@ _CLAUDE_OPUS_PRICING = {
 # accepts any alias for standalone cost estimation
 PRICING = {
     # GPT models
+    "gpt-5.4": _GPT_STANDARD_PRICING.copy(),
     "gpt-5.2-instant": _GPT_INSTANT_PRICING.copy(),
     "gpt-5.2-chat-latest": _GPT_STANDARD_PRICING.copy(),
     "gpt-5.2": _GPT_STANDARD_PRICING.copy(),

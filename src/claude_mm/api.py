@@ -113,7 +113,7 @@ def review(
         model_list = [model]
     else:
         # Default to configured review model
-        model_list = [config.get("default_models", {}).get("review", "gpt-5.2-chat-latest")]
+        model_list = [config.get("default_models", {}).get("review", "gpt-5.4")]
 
     system_prompt = get_review_system_prompt(focus)
 
@@ -483,7 +483,7 @@ async def review_async(
     elif model:
         model_list = [model]
     else:
-        model_list = [config.get("default_models", {}).get("review", "gpt-5.2-chat-latest")]
+        model_list = [config.get("default_models", {}).get("review", "gpt-5.4")]
 
     system_prompt = get_review_system_prompt(focus)
 

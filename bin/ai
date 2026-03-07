@@ -566,8 +566,8 @@ def main():
     )
     check_parser.add_argument(
         "--gpt",
-        default="gpt-5.2-chat-latest",
-        help="GPT model to test (default: gpt-5.2-chat-latest)",
+        default="gpt-5.4",
+        help="GPT model to test (default: gpt-5.4)",
     )
     check_parser.add_argument(
         "--claude",

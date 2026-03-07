@@ -11,7 +11,7 @@ from pathlib import Path
 DEFAULT_CONFIG = {
     "default_models": {
         "plan": "gpt-5.2",  # GPT-5.2 Thinking (for complex planning)
-        "review": "gpt-5.2-chat-latest",  # GPT-5.2 Instant (fast reviews)
+        "review": "gpt-5.4",  # GPT-5.4 for deeper, more rigorous reviews
     },
     "cost_warning_threshold": 0.10,
     "cache_ttl_hours": 24,

@@ -20,7 +20,7 @@ from claude_mm.usage import log_api_call
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.72
 PLAN_MODEL_GROUPS = {
-    "mm": ["gpt-5.2", "gemini", "claude-opus-4-6"],
+    "mm": ["gpt-5.4", "gemini", "claude-opus-4-6"],
 }
 
 _PLAN_SCHEMA = {

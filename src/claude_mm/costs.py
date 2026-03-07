@@ -35,16 +35,13 @@ def estimate_tokens(text: str) -> int:
 
 
 def estimate_cost(
-    model: str,
-    input_tokens: int,
-    output_tokens: int,
-    cached_tokens: int = 0
+    model: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0
 ) -> float:
     """
     Estimate cost for an API call.
 
     Args:
-        model: Model name (e.g., "gpt-5.2", "gpt-5.2-chat-latest", "gpt-5.2-pro")
+        model: Model name (e.g., "gpt-5.4", "gpt-5.2-chat-latest", "gpt-5.2-pro")
         input_tokens: Number of input tokens
         output_tokens: Number of output tokens
         cached_tokens: Number of cached input tokens (discount varies by provider)
@@ -80,10 +77,7 @@ def estimate_cost(
 
 
 def estimate_cost_from_text(
-    model: str,
-    input_text: str,
-    expected_output_tokens: int = 1000,
-    cached_ratio: float = 0.0
+    model: str, input_text: str, expected_output_tokens: int = 1000, cached_ratio: float = 0.0
 ) -> dict:
     """
     Estimate cost from input text.
@@ -198,10 +192,10 @@ if __name__ == "__main__":
 
     # Stabilization (multi-round)
     stabilize_estimate = estimate_cost_from_text("gpt-5.2", plan_input * 100, 4000)
-    stabilize_total = stabilize_estimate['estimated_cost'] * 4  # 4 rounds
+    stabilize_total = stabilize_estimate["estimated_cost"] * 4  # 4 rounds
     print(f"Stabilization 2 rounds (gpt-5.2): ${stabilize_total:.4f}")
 
     # Pro warning
     pro_estimate = estimate_cost_from_text("gpt-5.2-pro", plan_input * 100, 2000)
     print(f"\nPro Model (gpt-5.2-pro): {pro_estimate['cost_formatted']}")
-    print(format_cost_warning("gpt-5.2-pro", pro_estimate['estimated_cost'], "complex planning"))
+    print(format_cost_warning("gpt-5.2-pro", pro_estimate["estimated_cost"], "complex planning"))

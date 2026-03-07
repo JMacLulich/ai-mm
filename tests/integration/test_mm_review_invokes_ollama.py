@@ -37,7 +37,7 @@ def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, capsys):
 
     result = api.review(
         prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.2", "gemini", "claude-opus-4-6", "ollama"],
+        models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
         focus="architecture",
         use_cache=False,
     )
@@ -74,7 +74,7 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
 
     class StubProvider:
         def complete(self, prompt, model, system_prompt=None):
-            if model in {"gpt-5.2", "gemini-3.1-pro-preview"}:
+            if model in {"gpt-5.4", "gemini-3.1-pro-preview"}:
                 raise Exception("503 Service Unavailable")
 
             if model == "lmstudio" or model == "qwen3.5:27b":
@@ -99,7 +99,7 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
 
     result = api.review(
         prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.2", "gemini", "claude-opus-4-6"],
+        models=["gpt-5.4", "gemini", "claude-opus-4-6"],
         focus="architecture",
         use_cache=False,
     )
@@ -116,7 +116,7 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
     class StubProvider:
         def complete(self, prompt, model, system_prompt=None):
             if model in {
-                "gpt-5.2",
+                "gpt-5.4",
                 "gemini-3.1-pro-preview",
                 "claude-opus-4-6",
                 "qwen2.5:14b-instruct",
@@ -145,7 +145,7 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
 
     result = api.review(
         prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.2", "gemini", "claude-opus-4-6", "ollama"],
+        models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
         focus="architecture",
         use_cache=False,
     )
@@ -161,7 +161,7 @@ def test_mm_review_aggregates_results_when_one_model_times_out(monkeypatch):
 
     class StubProvider:
         def complete(self, prompt, model, system_prompt=None):
-            if model == "gpt-5.2":
+            if model == "gpt-5.4":
                 time.sleep(0.2)
                 return ProviderResponse(
                     text="late gpt result",
@@ -184,12 +184,12 @@ def test_mm_review_aggregates_results_when_one_model_times_out(monkeypatch):
 
     result = api.review(
         prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.2", "gemini"],
+        models=["gpt-5.4", "gemini"],
         focus="architecture",
         use_cache=False,
         per_model_timeout=0.05,
     )
 
     assert "gemini" in result.results
-    assert "gpt-5.2" not in result.results
-    assert result.errors["gpt-5.2"].startswith("timed out after")
+    assert "gpt-5.4" not in result.results
+    assert result.errors["gpt-5.4"].startswith("timed out after")

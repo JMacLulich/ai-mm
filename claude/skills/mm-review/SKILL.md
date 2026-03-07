@@ -280,14 +280,14 @@ This skill integrates with the separate `ai-mm` repository:
 ## Cost Information
 
 - Typical mm review: $0.05-0.12
-- Uses: GPT-5.2 Instant (gpt-5.2-chat-latest) + Gemini-3-flash-preview + Claude Opus 4.5
+- Uses: GPT-5.4 + Gemini-3-flash-preview + Claude Opus 4.6
 - Parallel execution: ~2-3 seconds
 - Cached for 24 hours
 
 ### Model-Specific Reviews
 
 You can also use specific models:
-- `ai review --model gpt` - GPT-5.2 Chat Latest only ($1.75/$14 per 1M tokens)
+- `ai review --model gpt` - GPT-5.4 only ($1.75/$14 per 1M tokens, estimated)
 - `ai review --model gemini` - Gemini 3 Flash Preview only ($0.075/$0.30 per 1M tokens)
 - `ai review --model claude` - Claude Sonnet 4.5 only ($3/$15 per 1M tokens)
 - `ai review --model opus` - Claude Opus 4.5 only ($5/$25 per 1M tokens)

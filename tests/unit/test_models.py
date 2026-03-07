@@ -32,6 +32,7 @@ class TestModelRegistries:
     def test_openai_models_exist(self):
         """OpenAI models registry is not empty."""
         assert len(OPENAI_MODELS) > 0
+        assert "gpt-5.4" in OPENAI_MODELS
         assert "gpt-5.2-chat-latest" in OPENAI_MODELS
         assert "gpt-5.2" in OPENAI_MODELS
         assert "gpt-5.2-pro" in OPENAI_MODELS
@@ -84,6 +85,7 @@ class TestGetProviderForModel:
 
     def test_openai_models(self):
         """OpenAI models resolve to 'openai' provider."""
+        assert get_provider_for_model("gpt-5.4") == "openai"
         assert get_provider_for_model("gpt-5.2") == "openai"
         assert get_provider_for_model("gpt-5.2-chat-latest") == "openai"
         assert get_provider_for_model("gpt-5.2-pro") == "openai"
@@ -128,6 +130,10 @@ class TestNormalizeModelName:
 
     def test_openai_direct_models(self):
         """OpenAI direct model names normalize correctly."""
+        provider, model = normalize_model_name("gpt-5.4")
+        assert provider == "openai"
+        assert model == "gpt-5.4"
+
         provider, model = normalize_model_name("gpt-5.2")
         assert provider == "openai"
         assert model == "gpt-5.2"
@@ -144,7 +150,7 @@ class TestNormalizeModelName:
         """OpenAI aliases resolve to API names."""
         provider, model = normalize_model_name("gpt")
         assert provider == "openai"
-        assert model == "gpt-5.2"  # Default GPT model
+        assert model == "gpt-5.4"  # Default GPT model
 
         # CRITICAL: Backward compatibility for old name
         provider, model = normalize_model_name("gpt-5.2-instant")
@@ -203,6 +209,7 @@ class TestGetModelDisplayName:
 
     def test_openai_display_names(self):
         """OpenAI models have proper display names."""
+        assert get_model_display_name("gpt-5.4") == "GPT-5.4"
         assert get_model_display_name("gpt-5.2-chat-latest") == "GPT-5.2 Instant"
         assert get_model_display_name("gpt-5.2") == "GPT-5.2 Thinking"
         assert get_model_display_name("gpt-5.2-pro") == "GPT-5.2 Pro"
@@ -226,6 +233,13 @@ class TestGetModelDisplayName:
 
 class TestGetModelCharacteristics:
     """Test model characteristics metadata."""
+
+    def test_openai_5_4_characteristics(self):
+        """GPT-5.4 has correct characteristics."""
+        chars = get_model_characteristics("gpt-5.4")
+        assert chars["speed"] == "medium"
+        assert chars["cost_tier"] == "medium"
+        assert chars["context_window"] == 128000
 
     def test_openai_instant_characteristics(self):
         """GPT-5.2 Instant has correct characteristics."""

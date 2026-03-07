@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 # OpenAI Models
 OPENAI_MODELS = {
     # User-facing name -> API name
+    "gpt-5.4": "gpt-5.4",  # Latest thinking model for deep review/planning
     "gpt-5.2-chat-latest": "gpt-5.2-chat-latest",  # Fast workhorse (Instant)
     "gpt-5.2": "gpt-5.2",  # Thinking model for complex work
     "gpt-5.2-pro": "gpt-5.2-pro",  # Premium model, highest quality
@@ -26,8 +27,8 @@ OPENAI_MODELS = {
 
 # User-friendly aliases
 OPENAI_ALIASES = {
-    "gpt": "gpt-5.2",  # Default to thinking model
-    "gpt-5": "gpt-5.2",
+    "gpt": "gpt-5.4",  # Default to latest thinking model
+    "gpt-5": "gpt-5.4",
     "gpt-instant": "gpt-5.2-chat-latest",
     "gpt-5.2-instant": "gpt-5.2-chat-latest",  # Legacy alias (incorrect API name)
 }
@@ -88,13 +89,13 @@ LMSTUDIO_ALIASES = {
 # Model groups for multi-model reviews
 MODEL_GROUPS = {
     "mm": [
-        "gpt-5.2",
+        "gpt-5.4",
         "gemini",
         "claude-opus-4-6",
         "ollama",
         "lmstudio",
     ],  # Multimode includes both local providers
-    "all": ["gpt-5.2", "gemini", "claude-opus-4-6", "ollama", "lmstudio"],
+    "all": ["gpt-5.4", "gemini", "claude-opus-4-6", "ollama", "lmstudio"],
     # All providers
     "fast": [
         "gpt-5.2-chat-latest",
@@ -157,7 +158,7 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
 
     Examples:
         >>> normalize_model_name("gpt")
-        ("openai", "gpt-5.2")
+        ("openai", "gpt-5.4")
         >>> normalize_model_name("gpt-5.2-instant")
         ("openai", "gpt-5.2-chat-latest")
         >>> normalize_model_name("gemini")
@@ -203,13 +204,14 @@ def get_model_display_name(api_model: str) -> str:
     Get user-friendly display name for an API model.
 
     Args:
-        api_model: API model name (e.g., "gpt-5.2-chat-latest")
+        api_model: API model name (e.g., "gpt-5.4")
 
     Returns:
-        Display name (e.g., "GPT-5.2 Instant")
+        Display name (e.g., "GPT-5.4")
     """
     display_names = {
         # OpenAI
+        "gpt-5.4": "GPT-5.4",
         "gpt-5.2-chat-latest": "GPT-5.2 Instant",
         "gpt-5.2": "GPT-5.2 Thinking",
         "gpt-5.2-pro": "GPT-5.2 Pro",
@@ -251,6 +253,12 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
     # Model characteristics
     chars = {
         # OpenAI
+        "gpt-5.4": {
+            "speed": "medium",
+            "cost_tier": "medium",
+            "context_window": 128000,
+            "description": "Latest GPT thinking model for deep reviews and complex reasoning",
+        },
         "gpt-5.2-chat-latest": {
             "speed": "fast",
             "cost_tier": "low",

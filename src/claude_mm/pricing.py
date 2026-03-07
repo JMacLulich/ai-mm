@@ -15,6 +15,7 @@ import yaml
 
 DEFAULT_PRICING = {
     "openai": {
+        "gpt-5.4": {"input": 1.75, "output": 14.00},  # Estimated at GPT-5.2 parity
         "gpt-5.2-chat-latest": {"input": 0.40, "output": 1.60},  # GPT-5.2 Instant (fast)
         "gpt-5.2": {"input": 1.75, "output": 14.00},  # GPT-5.2 Thinking (standard)
         "gpt-5.2-pro": {"input": 21.00, "output": 84.00},  # GPT-5.2 Pro (expensive)
@@ -112,7 +113,7 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
 
     # Try to find a default for the provider from loaded pricing
     if provider == "openai":
-        for fallback in ["gpt-5.2", "gpt-5.2-chat-latest"]:
+        for fallback in ["gpt-5.4", "gpt-5.2", "gpt-5.2-chat-latest"]:
             if fallback in provider_pricing:
                 return provider_pricing[fallback]
     elif provider == "google":
@@ -134,7 +135,7 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
         return default_provider_pricing[model]
 
     if provider == "openai":
-        for fallback in ["gpt-5.2", "gpt-5.2-chat-latest"]:
+        for fallback in ["gpt-5.4", "gpt-5.2", "gpt-5.2-chat-latest"]:
             if fallback in default_provider_pricing:
                 return default_provider_pricing[fallback]
     elif provider == "google":
@@ -168,6 +169,7 @@ def update_pricing_from_url(url: str) -> bool:
     Expected JSON format:
         {
             "openai": {
+                "gpt-5.4": {"input": 1.75, "output": 14.00},
                 "gpt-5.2": {"input": 1.75, "output": 14.00},
                 ...
             },
