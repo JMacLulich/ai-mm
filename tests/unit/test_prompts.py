@@ -21,6 +21,30 @@ def test_testing_focus_prompt_exists() -> None:
     assert "testing and qa specialist" in prompt.lower()
 
 
+def test_security_focus_prompt_includes_security_review_categories() -> None:
+    """Security focus includes key application security review areas."""
+    prompt = get_review_system_prompt("security").lower()
+    assert "authentication and authorization" in prompt
+    assert "tenant isolation" in prompt
+    assert "row-level security (rls)" in prompt
+    assert "secrets exposure" in prompt
+    assert "sql/command/template injection" in prompt
+    assert "xss/csrf/ssrf" in prompt
+    assert "security test to add" in prompt
+
+
+def test_architecture_focus_prompt_includes_design_principles() -> None:
+    """Architecture focus includes the expanded design review context."""
+    prompt = get_review_system_prompt("architecture").lower()
+    assert "modularity" in prompt
+    assert "loose coupling" in prompt
+    assert "high cohesion" in prompt
+    assert "abstraction" in prompt
+    assert "ci/cd" in prompt
+    assert "separation of concerns" in prompt
+    assert "testability" in prompt
+
+
 def test_unknown_focus_falls_back_to_default() -> None:
     """Unknown focus values fall back to default focus prompt."""
     prompt = get_review_system_prompt("not-a-real-focus")
