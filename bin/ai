@@ -134,9 +134,9 @@ def cmd_review(args):
     try:
         effective_timeout = args.per_model_timeout
         if models and len(models) > 1 and effective_timeout < 0:
-            effective_timeout = 45.0
+            effective_timeout = 60.0
             print(
-                "⏱️  Using default per-model timeout: 45.0s "
+                "⏱️  Using default per-model timeout: 60.0s "
                 "(set --per-model-timeout 0 to disable)",
                 file=sys.stderr,
             )
@@ -467,7 +467,7 @@ def main():
         default=-1.0,
         help=(
             "Per-model timeout in seconds for multi-model reviews "
-            "(mm/all/fast, default 45s, 0 disables)"
+            "(mm/all/fast, default 60s, 0 disables)"
         ),
     )
     review_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")

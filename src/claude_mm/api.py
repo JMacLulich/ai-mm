@@ -119,11 +119,11 @@ def review(
 
     effective_timeout = per_model_timeout
     if len(model_list) > 1 and effective_timeout is None:
-        configured_timeout = config.get("review_per_model_timeout_seconds", 45)
+        configured_timeout = config.get("review_per_model_timeout_seconds", 60)
         try:
             effective_timeout = float(configured_timeout)
         except (TypeError, ValueError):
-            effective_timeout = 45.0
+            effective_timeout = 60.0
 
     # Single model review
     if len(model_list) == 1:
@@ -489,11 +489,11 @@ async def review_async(
 
     effective_timeout = per_model_timeout
     if len(model_list) > 1 and effective_timeout is None:
-        configured_timeout = config.get("review_per_model_timeout_seconds", 45)
+        configured_timeout = config.get("review_per_model_timeout_seconds", 60)
         try:
             effective_timeout = float(configured_timeout)
         except (TypeError, ValueError):
-            effective_timeout = 45.0
+            effective_timeout = 60.0
 
     # Single model
     if len(model_list) == 1:

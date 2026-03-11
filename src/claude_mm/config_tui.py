@@ -14,6 +14,7 @@ import sys
 import termios
 import tty
 
+from claude_mm.config import CONFIG_FILE, load_user_config, save_user_config
 from claude_mm.env import CONFIG_DIR, ENV_FILE, load_env_file, save_env_file
 
 PROVIDERS = [
@@ -22,6 +23,15 @@ PROVIDERS = [
     ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
     ("ollama", "OLLAMA_BASE_URL", "Local LLM endpoint URL", "http(s)://..."),
     ("lmstudio", "LMSTUDIO_BASE_URL", "LM Studio OpenAI-compatible endpoint", "http(s)://..."),
+]
+
+SETTINGS = [
+    (
+        "review timeout",
+        "review_per_model_timeout_seconds",
+        "Per-model timeout for multi-model reviews",
+        "60",
+    ),
 ]
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -146,6 +156,28 @@ def save_keys(keys: dict[str, str]) -> None:
     save_env_file(keys)
 
 
+def load_existing_settings() -> dict[str, str]:
+    user_config = load_user_config()
+    settings = {}
+    for _label, key, _description, default_value in SETTINGS:
+        settings[key] = str(user_config.get(key, default_value))
+    return settings
+
+
+def save_settings(settings: dict[str, str]) -> None:
+    user_config = load_user_config()
+    for _label, key, _description, default_value in SETTINGS:
+        value = settings.get(key, "").strip()
+        if not value or value == default_value:
+            user_config.pop(key, None)
+            continue
+        try:
+            user_config[key] = int(value)
+        except ValueError:
+            user_config[key] = value
+    save_user_config(user_config)
+
+
 def _read_menu_key() -> str:
     ch = sys.stdin.read(1)
     if ch == "\x1b":
@@ -173,11 +205,12 @@ def _read_menu_key() -> str:
 
 
 def _prompt_for_value(
-    provider: str,
-    env_key: str,
+    label: str,
+    field_key: str,
     description: str,
     prefix: str | None,
     current_value: str = "",
+    suggested_value: str = "",
 ) -> str | None:
     print("\033[2J\033[H", end="")
 
@@ -185,23 +218,24 @@ def _prompt_for_value(
     inner = cols - 4
 
     print(_menu_border(inner))
-    print(_menu_row(f" SET CONFIG VALUE: {provider.upper()} ", inner))
+    print(_menu_row(f" SET CONFIG VALUE: {label.upper()} ", inner))
     print(_menu_border(inner))
     print(_menu_row(f" Service: {description} ", inner))
     if current_value:
         print(_menu_row(f" Current value: {current_value} ", inner))
-    suggested_value = ""
-    if env_key == "OLLAMA_BASE_URL" and not current_value:
+    if field_key == "OLLAMA_BASE_URL" and not current_value and not suggested_value:
         suggested_value = "http://localhost:11434"
         print(_menu_row(f" Suggested value: {suggested_value} ", inner))
-    elif env_key == "LMSTUDIO_BASE_URL" and not current_value:
+    elif field_key == "LMSTUDIO_BASE_URL" and not current_value and not suggested_value:
         suggested_value = "http://127.0.0.1:1234/v1"
+        print(_menu_row(f" Suggested value: {suggested_value} ", inner))
+    elif suggested_value and not current_value:
         print(_menu_row(f" Suggested value: {suggested_value} ", inner))
     if prefix:
         print(_menu_row(f" Expected prefix: {prefix} ", inner))
     print(_menu_border(inner))
     print(_menu_row("", inner))
-    print(_menu_row(f" Enter value for {env_key}: ", inner))
+    print(_menu_row(f" Enter value for {field_key}: ", inner))
     input_row = 8
     print(_menu_row("", inner))
     print(_menu_border(inner))
@@ -209,7 +243,11 @@ def _prompt_for_value(
     print(_menu_border(inner))
 
     key_input: list[str] = []
-    obscure_input = env_key not in {"OLLAMA_BASE_URL", "LMSTUDIO_BASE_URL"}
+    obscure_input = field_key not in {
+        "OLLAMA_BASE_URL",
+        "LMSTUDIO_BASE_URL",
+        "review_per_model_timeout_seconds",
+    }
 
     while True:
         if key_input:
@@ -240,14 +278,20 @@ def _prompt_for_value(
 
     if key_input:
         return "".join(key_input)
-    if env_key in {"OLLAMA_BASE_URL", "LMSTUDIO_BASE_URL"} and suggested_value:
+    if (
+        field_key in {"OLLAMA_BASE_URL", "LMSTUDIO_BASE_URL", "review_per_model_timeout_seconds"}
+        and suggested_value
+    ):
         return suggested_value
     return None
 
 
 def _build_menu_rows(
-    keys: dict[str, str], test_results: dict[str, tuple[bool, str]] | None = None
+    keys: dict[str, str],
+    settings: dict[str, str] | None = None,
+    test_results: dict[str, tuple[bool, str]] | None = None,
 ) -> list[dict]:
+    settings = settings or {}
     test_results = test_results or {}
     rows = []
     local_providers = {"ollama", "lmstudio"}
@@ -258,9 +302,12 @@ def _build_menu_rows(
         rows.append(
             {
                 "provider": provider,
+                "kind": "env",
                 "env_key": env_key,
+                "config_key": None,
                 "description": description,
                 "prefix": prefix,
+                "suggested_value": "",
                 "has_key": has_key,
                 "is_local": is_local,
                 "masked": (keys.get(env_key, "") if is_local and has_key else "(not set)")
@@ -271,12 +318,34 @@ def _build_menu_rows(
                 "test_status": test_status,
             }
         )
+    for label, config_key, description, default_value in SETTINGS:
+        current_value = settings.get(config_key, default_value)
+        rows.append(
+            {
+                "provider": label,
+                "kind": "config",
+                "env_key": "",
+                "config_key": config_key,
+                "description": description,
+                "prefix": "seconds",
+                "suggested_value": default_value,
+                "has_key": bool(current_value),
+                "is_local": False,
+                "masked": current_value,
+                "is_exit": False,
+                "is_cancel": False,
+                "test_status": None,
+            }
+        )
     rows.append(
         {
             "provider": "Save & Exit",
+            "kind": "action",
             "env_key": "",
+            "config_key": None,
             "description": "",
             "prefix": None,
+            "suggested_value": "",
             "has_key": False,
             "is_local": False,
             "masked": "",
@@ -288,9 +357,12 @@ def _build_menu_rows(
     rows.append(
         {
             "provider": "Exit without saving",
+            "kind": "action",
             "env_key": "",
+            "config_key": None,
             "description": "",
             "prefix": None,
+            "suggested_value": "",
             "has_key": False,
             "is_local": False,
             "masked": "",
@@ -320,7 +392,7 @@ def _render_menu(
     if has_changes:
         title = " AI CONFIG MANAGER (unsaved changes) "
     print(_menu_row(title, inner))
-    print(_menu_row(f" Config: {CONFIG_DIR} ", inner))
+    print(_menu_row(f" Env: {CONFIG_DIR} | YAML: {CONFIG_FILE} ", inner))
     print(_menu_border(inner))
     print(_menu_row(" Up/Down: nav   Enter: edit   t: test   d: delete   q: quit ", inner))
     print(_menu_border(inner))
@@ -341,7 +413,9 @@ def _render_menu(
 
         provider_name = _fit_text(row["provider"].upper(), name_w)
 
-        if row.get("is_local"):
+        if row["kind"] == "config":
+            status = _colorize(f"= {row['masked']} {row['prefix']}", "36")
+        elif row.get("is_local"):
             if row["has_key"]:
                 base_status = f"url: {row['masked']}"
             else:
@@ -383,6 +457,8 @@ def _render_menu(
         footer = " Save changes and exit "
     elif selected.get("is_cancel"):
         footer = " Discard changes and exit "
+    elif selected["kind"] == "config":
+        footer = f" {selected['description']} | d: reset to default "
     else:
         footer = f" {selected['description']} | t: test config "
     print(_menu_row(footer, inner))
@@ -429,8 +505,10 @@ def _next_menu_index(current: int, key: str, row_count: int) -> int:
 def run_config_tui() -> bool:
     original_keys = load_existing_keys()
     keys = dict(original_keys)
+    original_settings = load_existing_settings()
+    settings = dict(original_settings)
     test_results: dict[str, tuple[bool, str]] = {}
-    rows = _build_menu_rows(keys, test_results)
+    rows = _build_menu_rows(keys, settings, test_results)
     idx = 0
     last_error = ""
 
@@ -439,7 +517,7 @@ def run_config_tui() -> bool:
         return False
 
     def has_changes():
-        return keys != original_keys
+        return keys != original_keys or settings != original_settings
 
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
@@ -460,6 +538,7 @@ def run_config_tui() -> bool:
                 row = rows[idx]
                 if row["is_exit"]:
                     save_keys(keys)
+                    save_settings(settings)
                     print("\033[2J\033[H", end="")
                     return True
                 elif row.get("is_cancel"):
@@ -469,27 +548,42 @@ def run_config_tui() -> bool:
                         print()
                     return False
                 else:
-                    if row["env_key"]:
+                    field_key = row["env_key"] or row["config_key"]
+                    current_value = (
+                        keys.get(row["env_key"], "")
+                        if row["kind"] == "env"
+                        else settings.get(row["config_key"], row["suggested_value"])
+                    )
+                    current_value = current_value or ""
+                    if field_key:
                         new_value = _prompt_for_value(
                             row["provider"],
-                            row["env_key"],
+                            field_key,
                             row["description"],
                             row["prefix"],
-                            keys.get(row["env_key"], ""),
+                            current_value,
+                            row["suggested_value"],
                         )
                         if new_value is not None:
-                            keys[row["env_key"]] = new_value
-                            if row["provider"] in test_results:
+                            if row["kind"] == "env":
+                                keys[row["env_key"]] = new_value
+                            else:
+                                settings[row["config_key"]] = new_value
+                            if row["provider"] in test_results and row["kind"] == "env":
                                 del test_results[row["provider"]]
-                            rows = _build_menu_rows(keys, test_results)
+                            rows = _build_menu_rows(keys, settings, test_results)
                         last_error = ""
             elif key == "test":
-                if not rows[idx]["is_exit"] and not rows[idx].get("is_cancel"):
+                if (
+                    not rows[idx]["is_exit"]
+                    and not rows[idx].get("is_cancel")
+                    and rows[idx]["kind"] == "env"
+                ):
                     row = rows[idx]
                     _show_testing_screen(row["provider"])
                     success, msg = _test_api_key(row["provider"], keys.get(row["env_key"], ""))
                     test_results[row["provider"]] = (success, msg)
-                    rows = _build_menu_rows(keys, test_results)
+                    rows = _build_menu_rows(keys, settings, test_results)
                     if not success:
                         last_error = msg
                     else:
@@ -500,10 +594,13 @@ def run_config_tui() -> bool:
                     and not rows[idx].get("is_cancel")
                     and rows[idx]["has_key"]
                 ):
-                    del keys[rows[idx]["env_key"]]
-                    if rows[idx]["provider"] in test_results:
-                        del test_results[rows[idx]["provider"]]
-                    rows = _build_menu_rows(keys, test_results)
+                    if rows[idx]["kind"] == "env":
+                        del keys[rows[idx]["env_key"]]
+                        if rows[idx]["provider"] in test_results:
+                            del test_results[rows[idx]["provider"]]
+                    else:
+                        settings[rows[idx]["config_key"]] = rows[idx]["suggested_value"]
+                    rows = _build_menu_rows(keys, settings, test_results)
                     last_error = ""
             elif key in {"quit", "esc"}:
                 if has_changes():
@@ -520,7 +617,7 @@ def main() -> int:
 
     if saved:
         print()
-        print(_colorize(f"✓ Configuration saved to {ENV_FILE}", "32"))
+        print(_colorize(f"✓ Configuration saved to {ENV_FILE} and {CONFIG_FILE}", "32"))
         print()
         print("To apply changes in your current shell, run:")
         print(_colorize(f"  source {ENV_FILE}", "36"))

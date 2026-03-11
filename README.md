@@ -41,6 +41,7 @@ ai configure  # Alias for interactive TUI
 - **Ollama** - Local LLMs (set `OLLAMA_BASE_URL`)
 
 Keys stored at `~/.config/ai-mm/env` with secure permissions.
+Review defaults are stored in `~/.config/ai/config.yaml`.
 
 ## Usage
 
@@ -155,10 +156,16 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export OLLAMA_BASE_URL="http://localhost:11434"
 EOF
 chmod 600 ~/.config/ai-mm/env
+
+mkdir -p ~/.config/ai
+cat > ~/.config/ai/config.yaml <<'EOF'
+review_per_model_timeout_seconds: 60
+EOF
 ```
 
 When editing Ollama in `ai config`, the endpoint is shown in plain text (not masked).
 If missing, the UI suggests `http://localhost:11434`.
+`ai config` also lets you edit the default per-model review timeout.
 
 ## Design Principles
 

@@ -14,8 +14,10 @@ from claude_mm.config_tui import (
     _read_menu_key,
     _supports_color,
     load_existing_keys,
+    load_existing_settings,
     mask_key,
     save_keys,
+    save_settings,
 )
 
 
@@ -132,6 +134,7 @@ class TestBuildMenuRows:
         assert "anthropic" in provider_names
         assert "ollama" in provider_names
         assert "lmstudio" in provider_names
+        assert "review timeout" in provider_names
 
     def test_includes_exit_row(self):
         keys = {}
@@ -145,7 +148,7 @@ class TestBuildMenuRows:
         keys = {}
         rows = _build_menu_rows(keys)
         for row in rows:
-            if not row["is_exit"]:
+            if not row["is_exit"] and row["kind"] == "env":
                 assert row["has_key"] is False
 
     def test_detects_present_keys(self):
@@ -179,8 +182,8 @@ class TestPromptForValue:
         monkeypatch.setattr(sys, "stdout", io.StringIO())
 
         value = _prompt_for_value(
-            provider="ollama",
-            env_key="OLLAMA_BASE_URL",
+            label="ollama",
+            field_key="OLLAMA_BASE_URL",
             description="Local LLM endpoint URL",
             prefix="http(s)://...",
             current_value="",
@@ -193,14 +196,29 @@ class TestPromptForValue:
         monkeypatch.setattr(sys, "stdout", io.StringIO())
 
         value = _prompt_for_value(
-            provider="lmstudio",
-            env_key="LMSTUDIO_BASE_URL",
+            label="lmstudio",
+            field_key="LMSTUDIO_BASE_URL",
             description="LM Studio OpenAI-compatible endpoint",
             prefix="http(s)://...",
             current_value="",
         )
 
         assert value == "http://127.0.0.1:1234/v1"
+
+    def test_timeout_prompt_suggests_default(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
+        monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+        value = _prompt_for_value(
+            label="review timeout",
+            field_key="review_per_model_timeout_seconds",
+            description="Per-model timeout for multi-model reviews",
+            prefix="seconds",
+            current_value="",
+            suggested_value="60",
+        )
+
+        assert value == "60"
 
 
 class TestReadMenuKey:
@@ -291,3 +309,19 @@ class TestSaveAndLoadKeys:
 
         loaded = load_existing_keys()
         assert loaded == {"OPENAI_API_KEY": "real-key"}
+
+
+class TestSaveAndLoadSettings:
+    def test_load_settings_uses_default_when_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("claude_mm.config.CONFIG_FILE", tmp_path / "config.yaml")
+
+        loaded = load_existing_settings()
+        assert loaded["review_per_model_timeout_seconds"] == "60"
+
+    def test_save_and_load_settings_roundtrip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("claude_mm.config.CONFIG_FILE", tmp_path / "config.yaml")
+
+        save_settings({"review_per_model_timeout_seconds": "75"})
+
+        loaded = load_existing_settings()
+        assert loaded["review_per_model_timeout_seconds"] == "75"
