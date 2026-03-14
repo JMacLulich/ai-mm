@@ -1,5 +1,6 @@
 """Integration tests for multimode review provider invocation."""
 
+import logging
 import sys
 import time
 from decimal import Decimal
@@ -14,8 +15,8 @@ from claude_mm.models import MODEL_GROUPS
 from claude_mm.providers.base import ProviderResponse
 
 
-def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, capsys):
-    """Multimode reviews invoke local model and print Ollama errors when unavailable."""
+def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, caplog):
+    """Multimode reviews invoke local model and log Ollama errors when unavailable."""
     called_models = []
 
     class StubProvider:
@@ -35,17 +36,16 @@ def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, capsys):
     monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
     monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
 
-    result = api.review(
-        prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
-        focus="architecture",
-        use_cache=False,
-    )
-
-    output = capsys.readouterr().out
+    with caplog.at_level(logging.WARNING, logger="claude_mm.api"):
+        result = api.review(
+            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
+            models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
+            focus="architecture",
+            use_cache=False,
+        )
 
     assert "qwen2.5:14b-instruct" in called_models
-    assert "Error reviewing with ollama:" in output
+    assert "Error reviewing with ollama:" in caplog.text
     assert "ollama" not in result.results
     assert len(result.results) == 3
 
@@ -69,7 +69,7 @@ def test_mm_review_raises_when_all_models_fail(monkeypatch):
         )
 
 
-def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch, capsys):
+def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch, caplog):
     """When 2+ models fail with 503/529 overloads, fallback to LM Studio runs."""
 
     class StubProvider:
@@ -97,20 +97,19 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
     monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
     monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
 
-    result = api.review(
-        prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.4", "gemini", "claude-opus-4-6"],
-        focus="architecture",
-        use_cache=False,
-    )
+    with caplog.at_level(logging.INFO, logger="claude_mm.api"):
+        result = api.review(
+            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
+            models=["gpt-5.4", "gemini", "claude-opus-4-6"],
+            focus="architecture",
+            use_cache=False,
+        )
 
-    output = capsys.readouterr().out
-
-    assert "Detected repeated provider overloads (503/529)" in output
+    assert "Detected repeated provider overloads (503/529)" in caplog.text
     assert "lmstudio" in result.results
 
 
-def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, capsys):
+def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, caplog):
     """When external providers fail and no local succeeds, local fallback is attempted."""
 
     class StubProvider:
@@ -143,16 +142,15 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
     monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
     monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
 
-    result = api.review(
-        prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
-        focus="architecture",
-        use_cache=False,
-    )
+    with caplog.at_level(logging.INFO, logger="claude_mm.api"):
+        result = api.review(
+            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
+            models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
+            focus="architecture",
+            use_cache=False,
+        )
 
-    output = capsys.readouterr().out
-
-    assert "External providers failed and no local review succeeded yet" in output
+    assert "External providers failed and no local review succeeded yet" in caplog.text
     assert "lmstudio" in result.results
 
 

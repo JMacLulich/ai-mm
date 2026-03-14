@@ -61,16 +61,17 @@ def test_retry_with_backoff_no_retry_on_auth_error():
     assert mock_func.call_count == 1  # No retries
 
 
-def test_retry_logs_include_provider_and_model(capsys):
+def test_retry_logs_include_provider_and_model(caplog):
     """Retry log lines include provider/model context when available."""
+    import logging
 
     class FakeProvider:
         @retry_with_backoff(max_attempts=2, initial_delay=0.01)
         def complete(self, prompt, model="fake-model"):
             raise Exception("429 rate limit")
 
-    with pytest.raises(Exception, match="429 rate limit"):
-        FakeProvider().complete("test", model="demo-model")
+    with caplog.at_level(logging.WARNING, logger="claude_mm.retry"):
+        with pytest.raises(Exception, match="429 rate limit"):
+            FakeProvider().complete("test", model="demo-model")
 
-    stderr = capsys.readouterr().err
-    assert "[fake/demo-model]" in stderr
+    assert "[fake/demo-model]" in caplog.text

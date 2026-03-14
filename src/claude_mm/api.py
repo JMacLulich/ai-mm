@@ -22,6 +22,8 @@ Example usage:
 """
 
 import asyncio
+import concurrent.futures
+import logging
 import time
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -34,6 +36,10 @@ from claude_mm.prompts import get_review_system_prompt
 from claude_mm.providers import get_provider
 from claude_mm.providers.base import ProviderResponse
 from claude_mm.usage import log_api_call
+
+logger = logging.getLogger(__name__)
+
+VALID_FOCUS_VALUES = {"general", "review", "security", "performance", "architecture", "testing"}
 
 
 class ReviewResult:
@@ -57,18 +63,103 @@ class MultiReviewResult:
 
     def __init__(
         self,
-        results: Dict[str, ReviewResult],
+        results: Dict[str, "ReviewResult"],
         errors: Optional[Dict[str, str]] = None,
     ):
         self.results = results
         self.errors = errors or {}
-        self.total_cost = sum(r.cost for r in results.values() if r.cost)
+        self.total_cost = sum(
+            (r.cost for r in results.values() if r.cost is not None), Decimal("0")
+        )
 
-    def __getitem__(self, model: str) -> ReviewResult:
+    def __getitem__(self, model: str) -> "ReviewResult":
         return self.results[model]
 
     def __iter__(self):
         return iter(self.results.items())
+
+
+def _is_overload_error(error_message: str) -> bool:
+    """Return True if the error looks like a provider overload (503/529)."""
+    msg = error_message.lower()
+    overload_markers = ["503", "service unavailable", "529", "overloaded"]
+    return any(marker in msg for marker in overload_markers)
+
+
+def _build_fallback_candidates(
+    models: List[str],
+    results: Dict[str, Any],
+    errors: Dict[str, str],
+) -> List[str]:
+    """
+    Determine which local fallback models to try based on current results/errors.
+
+    Returns an ordered list of fallback candidates to attempt.
+    """
+    local_providers = {"ollama", "lmstudio"}
+    external_failure_count = 0
+    local_success_count = 0
+
+    for model_name in models:
+        provider_name = get_provider_for_model(model_name)
+        if provider_name in local_providers and model_name in results:
+            local_success_count += 1
+        if provider_name not in local_providers and model_name in errors:
+            external_failure_count += 1
+
+    overload_failures = sum(1 for error in errors.values() if _is_overload_error(error))
+
+    candidates = []
+    if overload_failures >= 2 and "lmstudio" not in results and "lmstudio" not in models:
+        logger.info(
+            "Detected repeated provider overloads (503/529). "
+            "Falling back to local LM Studio (qwen3.5:27b)."
+        )
+        candidates.append("lmstudio")
+
+    if external_failure_count > 0 and local_success_count == 0:
+        for local_model in ("ollama", "lmstudio"):
+            # Don't retry models that already failed or are already candidates
+            if (
+                local_model not in results
+                and local_model not in errors
+                and local_model not in candidates
+            ):
+                candidates.append(local_model)
+
+        if candidates:
+            logger.info(
+                "External providers failed and no local review succeeded yet. "
+                "Trying local fallback model(s)."
+            )
+
+    return candidates
+
+
+def _resolve_cache_ttl(cache_ttl: Optional[int], config: dict) -> int:
+    """Resolve effective cache TTL from caller arg and config, with type coercion."""
+    raw = cache_ttl if cache_ttl is not None else config.get("cache_ttl_hours", 24)
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"cache_ttl must be an integer number of hours, got {raw!r}") from e
+
+
+def _validate_review_args(
+    model: Optional[str],
+    models: Optional[List[str]],
+    focus: str,
+    per_model_timeout: Optional[float],
+) -> None:
+    """Validate shared review() / review_async() arguments, raising ValueError on bad input."""
+    if model is not None and models is not None:
+        raise ValueError("Pass either 'model' or 'models', not both")
+    if models is not None and not models:
+        raise ValueError("'models' must not be empty")
+    if focus not in VALID_FOCUS_VALUES:
+        raise ValueError(f"Invalid focus '{focus}'. Must be one of: {sorted(VALID_FOCUS_VALUES)}")
+    if per_model_timeout is not None and per_model_timeout < 0:
+        raise ValueError("per_model_timeout must be >= 0")
 
 
 def review(
@@ -80,21 +171,28 @@ def review(
     cache_ttl: Optional[int] = None,
     on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
     per_model_timeout: Optional[float] = None,
-) -> Union[ReviewResult, MultiReviewResult]:
+) -> Union["ReviewResult", "MultiReviewResult"]:
     """
     Perform code review with one or more AI models.
 
     Args:
         prompt: Code or diff to review
         model: Single model to use (e.g., 'gpt', 'gemini', 'claude')
-        models: Multiple models to use (for parallel review)
+        models: Multiple models to use (for parallel review). Mutually exclusive with model.
         focus: Review focus ('general', 'review', 'security', 'performance', 'architecture',
             'testing')
         use_cache: Whether to use cached responses
-        cache_ttl: Cache TTL in hours (overrides default)
+        cache_ttl: Cache TTL in hours (overrides default; 0 = expire immediately / no cache read)
+        on_result: Callback invoked as each model completes (model_name, result, duration_secs).
+            Only available in the multi-model sync path.
+        per_model_timeout: Per-model timeout in seconds for multi-model reviews
 
     Returns:
         ReviewResult for single model, MultiReviewResult for multiple models
+
+    Raises:
+        ValueError: If both model and models are provided, models is empty, focus is invalid,
+            or per_model_timeout is negative
 
     Examples:
         >>> result = review("git diff output", model="gpt")
@@ -104,15 +202,16 @@ def review(
         >>> for model, result in results:
         ...     print(f"{model}: {result.text}")
     """
-    config = load_config()
+    _validate_review_args(model, models, focus, per_model_timeout)
 
-    # Determine which models to use
-    if models:
-        model_list = models
-    elif model:
+    config = load_config()
+    effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
+
+    if models is not None:
+        model_list = list(dict.fromkeys(models))  # deduplicate preserving order
+    elif model is not None:
         model_list = [model]
     else:
-        # Default to configured review model
         model_list = [config.get("default_models", {}).get("review", "gpt-5.4")]
 
     system_prompt = get_review_system_prompt(focus)
@@ -125,23 +224,21 @@ def review(
         except (TypeError, ValueError):
             effective_timeout = 60.0
 
-    # Single model review
     if len(model_list) == 1:
         return _review_single(
             prompt,
             model_list[0],
             system_prompt,
             use_cache,
-            cache_ttl or config.get("cache_ttl_hours", 24),
+            effective_cache_ttl,
         )
 
-    # Multi-model review (parallel)
     return _review_multi(
         prompt,
         model_list,
         system_prompt,
         use_cache,
-        cache_ttl or config.get("cache_ttl_hours", 24),
+        effective_cache_ttl,
         on_result,
         effective_timeout,
     )
@@ -153,16 +250,24 @@ def _review_single(
     system_prompt: str,
     use_cache: bool,
     cache_ttl: int,
-) -> ReviewResult:
-    """Internal: Single model review."""
-    # Check cache first
-    if use_cache:
-        cached = get_cached_response(model, prompt, system_prompt, ttl_hours=cache_ttl)
-        if cached:
+) -> "ReviewResult":
+    """Internal: Single model review with cache check and side effects.
+
+    When cache_ttl=0, both cache reads and writes are skipped (as documented).
+    """
+    provider_name, model_id = normalize_model_name(model)
+    # cache_ttl=0 means "skip caching entirely for this call" (per documented contract)
+    effective_use_cache = use_cache and cache_ttl > 0
+
+    if effective_use_cache:
+        cached = get_cached_response(
+            model_id, prompt, system_prompt, ttl_hours=cache_ttl
+        )
+        if cached is not None:
             return ReviewResult(
                 ProviderResponse(
                     text=cached,
-                    model=model,
+                    model=model_id,
                     input_tokens=0,
                     output_tokens=0,
                     cost=Decimal("0"),
@@ -171,23 +276,19 @@ def _review_single(
                 cached=True,
             )
 
-    # Get provider and call
-    provider_name, model_id = normalize_model_name(model)
     provider = get_provider(provider_name)
     response = provider.complete(prompt, model_id, system_prompt)
 
-    # Log usage
     log_api_call(
         model=model_id,
         input_tokens=response.input_tokens,
         output_tokens=response.output_tokens,
-        cost=float(response.cost) if response.cost else 0.0,
+        cost=float(response.cost) if response.cost is not None else 0.0,
         operation="review",
     )
 
-    # Cache response
-    if use_cache:
-        cache_response(model, prompt, response.text, system_prompt)
+    if effective_use_cache:
+        cache_response(model_id, prompt, response.text, system_prompt)
 
     return ReviewResult(response, cached=False)
 
@@ -198,143 +299,98 @@ def _review_multi(
     system_prompt: str,
     use_cache: bool,
     cache_ttl: int,
-    on_result: Optional[Callable[[str, ReviewResult, float], None]] = None,
+    on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
     per_model_timeout: Optional[float] = None,
-) -> MultiReviewResult:
-    """Internal: Multi-model review using asyncio."""
-    # For now, use threading for backward compatibility
-    # TODO: Switch to pure asyncio in future
-    import threading
-    import time as thread_time
+) -> "MultiReviewResult":
+    """
+    Internal: Multi-model review using ThreadPoolExecutor with event-driven completion.
 
-    results = {}
-    errors = {}
-    timed_out = set()
-    lock = threading.Lock()
-    timeout_seconds = max(0.0, per_model_timeout or 0.0)
-    thread_start_times = {}
+    Note: Per-model timeout means we stop *waiting* for that model's result; the underlying
+    HTTP request may continue until the provider responds or the network times out.
+    For true request cancellation, configure provider-level timeouts.
+    """
+    results: Dict[str, ReviewResult] = {}
+    errors: Dict[str, str] = {}
+    # Explicit None check: 0.0 is a valid timeout value (treated as no-op), not infinite wait
+    timeout = per_model_timeout if per_model_timeout is not None and per_model_timeout > 0 else None
 
-    def review_thread(model_name):
-        start_time = time.perf_counter()
-        with lock:
-            print(f"Starting review with {model_name}...")
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(models))
+    start_times: Dict[int, float] = {}
+    future_to_model: Dict[concurrent.futures.Future, str] = {}
 
-        try:
-            result = _review_single(prompt, model_name, system_prompt, use_cache, cache_ttl)
-            duration = time.perf_counter() - start_time
-            with lock:
-                if model_name in timed_out:
-                    print(
-                        f"Late result ignored for {model_name} after timeout ({duration:.2f}s)",
-                    )
-                    return
-                results[model_name] = result
-                source = "cached" if result.cached else "live"
-                print(f"Completed {model_name} in {duration:.2f}s ({source})")
-            if on_result:
-                on_result(model_name, result, duration)
-        except Exception as e:
-            duration = time.perf_counter() - start_time
-            with lock:
-                if model_name in timed_out:
-                    return
-                errors[model_name] = str(e)
-                print(f"Error reviewing with {model_name}: {e} (after {duration:.2f}s)")
+    for m in models:
+        logger.info("Starting review with %s...", m)
+        future = executor.submit(_review_single, prompt, m, system_prompt, use_cache, cache_ttl)
+        start_times[id(future)] = time.perf_counter()
+        future_to_model[future] = m
 
-    threads = {m: threading.Thread(target=review_thread, args=(m,), daemon=True) for m in models}
-    for model_name, thread in threads.items():
-        thread_start_times[model_name] = thread_time.perf_counter()
-        thread.start()
+    # Collect results with event-driven waiting (no busy-poll)
+    try:
+        pending = set(future_to_model.keys())
+        deadline = (time.perf_counter() + timeout) if timeout else None
 
-    if timeout_seconds > 0:
-        pending = set(models)
         while pending:
-            with lock:
-                done = set(results) | set(errors) | set(timed_out)
-
-            pending -= done
-            if not pending:
+            remaining = (deadline - time.perf_counter()) if deadline else None
+            if remaining is not None and remaining <= 0:
                 break
 
-            now = thread_time.perf_counter()
-            for model_name in list(pending):
-                elapsed = now - thread_start_times[model_name]
-                thread = threads[model_name]
-                if elapsed >= timeout_seconds and thread.is_alive():
-                    with lock:
-                        if model_name in results or model_name in errors or model_name in timed_out:
-                            continue
-                        timed_out.add(model_name)
-                        errors[model_name] = f"timed out after {timeout_seconds:.1f}s"
-                        print(
-                            f"Timed out {model_name} after {timeout_seconds:.1f}s; continuing",
-                        )
-                    pending.remove(model_name)
-
-            thread_time.sleep(0.05)
-    else:
-        for thread in threads.values():
-            thread.join()
-
-    for thread in threads.values():
-        if not thread.is_alive():
-            thread.join(timeout=0)
-
-    def is_overload_error(error_message: str) -> bool:
-        msg = error_message.lower()
-        overload_markers = [
-            "503",
-            "service unavailable",
-            "unavailable",
-            "529",
-            "overloaded",
-        ]
-        return any(marker in msg for marker in overload_markers)
-
-    local_providers = {"ollama", "lmstudio"}
-    external_failure_count = 0
-    local_success_count = 0
-
-    for model_name in models:
-        provider_name = get_provider_for_model(model_name)
-        if provider_name in local_providers and model_name in results:
-            local_success_count += 1
-        if provider_name not in local_providers and model_name in errors:
-            external_failure_count += 1
-
-    overload_failures = sum(1 for error in errors.values() if is_overload_error(error))
-
-    fallback_candidates = []
-    if overload_failures >= 2 and "lmstudio" not in results and "lmstudio" not in models:
-        print(
-            "Detected repeated provider overloads (503/529). "
-            "Falling back to local LM Studio (qwen3.5:27b)."
-        )
-        fallback_candidates.append("lmstudio")
-
-    if external_failure_count > 0 and local_success_count == 0:
-        for local_model in ("ollama", "lmstudio"):
-            if local_model not in results and local_model not in fallback_candidates:
-                fallback_candidates.append(local_model)
-
-        if fallback_candidates:
-            print(
-                "External providers failed and no local review succeeded yet. "
-                "Trying local fallback model(s)."
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=remaining,
+                return_when=concurrent.futures.FIRST_COMPLETED,
             )
 
-    for fallback_model in fallback_candidates:
+            for future in done:
+                model_name = future_to_model[future]
+                duration = time.perf_counter() - start_times[id(future)]
+                try:
+                    result = future.result()
+                    results[model_name] = result
+                    source = "cached" if result.cached else "live"
+                    logger.info("Completed %s in %.2fs (%s)", model_name, duration, source)
+                except Exception as e:
+                    errors[model_name] = str(e)
+                    logger.warning(
+                        "Error reviewing with %s: %s (after %.2fs)", model_name, e, duration
+                    )
+                    continue
+
+                # on_result callback runs outside the result-recording try/except
+                # so callback failures don't corrupt the result dict
+                if on_result:
+                    try:
+                        on_result(model_name, result, duration)
+                    except Exception as e:
+                        logger.warning("on_result callback raised for %s: %s", model_name, e)
+
+            # If wait returned with no completions, the timeout elapsed
+            if not done and remaining is not None:
+                break
+
+        # Mark remaining pending futures as timed out
+        for future in pending:
+            model_name = future_to_model[future]
+            errors[model_name] = f"timed out after {timeout:.1f}s"
+            logger.warning("Timed out %s after %.1fs; continuing", model_name, timeout)
+    finally:
+        # Always release the executor; timed-out threads may still be running
+        executor.shutdown(wait=False)
+
+    # Try local fallback if external providers failed
+    for fallback_model in _build_fallback_candidates(models, results, errors):
         try:
+            fallback_start = time.perf_counter()
             fallback_result = _review_single(
                 prompt, fallback_model, system_prompt, use_cache, cache_ttl
             )
             results[fallback_model] = fallback_result
+            fallback_duration = time.perf_counter() - fallback_start
             if on_result:
-                on_result(fallback_model, fallback_result, 0.0)
+                on_result(fallback_model, fallback_result, fallback_duration)
             break
         except Exception as e:
             errors[fallback_model] = str(e)
-            print(f"Error reviewing with {fallback_model}: {e}")
+            logger.warning("Error reviewing with %s: %s", fallback_model, e)
 
     if not results:
         raise RuntimeError(
@@ -357,7 +413,7 @@ def plan(
     context_mode: str = "none",
     include_files: Optional[List[str]] = None,
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
-) -> ReviewResult:
+) -> "ReviewResult":
     """
     Generate an implementation plan.
 
@@ -365,7 +421,7 @@ def plan(
         goal: What to plan (e.g., "Add user authentication")
         model: Model to use (defaults to configured plan model)
         use_cache: Whether to use cached responses
-        cache_ttl: Cache TTL in hours (overrides default)
+        cache_ttl: Cache TTL in hours (overrides default; 0 = expire immediately / no cache read)
         depth: Planning depth preset ('standard' or 'deep')
         rounds: Number of critique/revision rounds
         output_format: Output format ('markdown' or 'json')
@@ -382,6 +438,7 @@ def plan(
         >>> print(plan_result.text)
     """
     config = load_config()
+    effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
 
     selected_model = model or config.get("default_models", {}).get("plan", "gpt-5.2")
     selected_model = str(selected_model)
@@ -396,7 +453,7 @@ def plan(
         context_mode=context_mode,
         include_files=include_files,
         use_cache=use_cache,
-        cache_ttl=cache_ttl or config.get("cache_ttl_hours", 24),
+        cache_ttl=effective_cache_ttl,
         confidence_threshold=confidence_threshold,
     )
 
@@ -425,15 +482,17 @@ def stabilize(
 
     Args:
         goal: What to plan
-        rounds: Number of critique/revision rounds
+        rounds: Number of critique/revision rounds requested
         mode: Optional mode ('migrations', 'docs', 'infra')
         use_cache: Whether to use cached responses
 
     Returns:
         Dictionary with:
-            - final_plan: The stabilized plan
-            - rounds: List of round results
-            - total_cost: Total cost across all rounds
+            - final_plan: The stabilized plan (ReviewResult)
+            - rounds_requested: Number of critique/revision rounds requested
+            - mode: Optional mode used ('migrations', 'docs', 'infra', or None)
+            - total_cost: Total cost in USD
+            - metadata: Additional metadata from the plan
 
     Example:
         >>> result = stabilize("Add user authentication", rounds=2)
@@ -457,7 +516,7 @@ def stabilize(
 
     return {
         "final_plan": plan_result,
-        "rounds": rounds,
+        "rounds_requested": rounds,
         "mode": mode,
         "total_cost": float(plan_result.cost or Decimal("0")),
         "metadata": plan_result.metadata,
@@ -465,6 +524,8 @@ def stabilize(
 
 
 # Async API variants
+
+
 async def review_async(
     prompt: str,
     model: Optional[str] = None,
@@ -473,14 +534,28 @@ async def review_async(
     use_cache: bool = True,
     cache_ttl: Optional[int] = None,
     per_model_timeout: Optional[float] = None,
-) -> Union[ReviewResult, MultiReviewResult]:
-    """Async version of review(). See review() for documentation."""
-    config = load_config()
+) -> Union["ReviewResult", "MultiReviewResult"]:
+    """
+    Async version of review(). See review() for full documentation.
 
-    # Determine which models to use
-    if models:
-        model_list = models
-    elif model:
+    Includes the same fallback logic as the sync path: if all external providers fail,
+    local models (ollama, lmstudio) are tried automatically.
+
+    Note: on_result callback is not supported in the async path. To stream results,
+    use asyncio.gather with individual _review_single_async calls.
+
+    Raises:
+        ValueError: If both model and models are provided, models is empty, focus is invalid,
+            or per_model_timeout is negative
+    """
+    _validate_review_args(model, models, focus, per_model_timeout)
+
+    config = load_config()
+    effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
+
+    if models is not None:
+        model_list = list(dict.fromkeys(models))  # deduplicate preserving order
+    elif model is not None:
         model_list = [model]
     else:
         model_list = [config.get("default_models", {}).get("review", "gpt-5.4")]
@@ -495,33 +570,34 @@ async def review_async(
         except (TypeError, ValueError):
             effective_timeout = 60.0
 
-    # Single model
     if len(model_list) == 1:
         return await _review_single_async(
             prompt,
             model_list[0],
             system_prompt,
             use_cache,
-            cache_ttl or config.get("cache_ttl_hours", 24),
+            effective_cache_ttl,
         )
 
-    # Multi-model (parallel with asyncio, per-model timeout)
-    timeout_seconds = max(0.0, effective_timeout or 0.0)
+    # Explicit None check for 0.0 consistency with sync path
+    timeout_seconds = (
+        effective_timeout if effective_timeout is not None and effective_timeout > 0 else 0.0
+    )
 
     async def run_model(model_name: str):
         start = time.perf_counter()
         try:
-            task = _review_single_async(
+            coro = _review_single_async(
                 prompt,
                 model_name,
                 system_prompt,
                 use_cache,
-                cache_ttl or config.get("cache_ttl_hours", 24),
+                effective_cache_ttl,
             )
             if timeout_seconds > 0:
-                result = await asyncio.wait_for(task, timeout=timeout_seconds)
+                result = await asyncio.wait_for(coro, timeout=timeout_seconds)
             else:
-                result = await task
+                result = await coro
 
             duration = time.perf_counter() - start
             return model_name, result, duration, None
@@ -535,18 +611,32 @@ async def review_async(
     tasks = [run_model(m) for m in model_list]
     results_list = await asyncio.gather(*tasks)
 
-    errors = {}
-    results = {}
+    errors: Dict[str, str] = {}
+    results: Dict[str, ReviewResult] = {}
     for model_name, result, duration, error in results_list:
         if error:
-            print(f"Error reviewing with {model_name}: {error} (after {duration:.2f}s)")
+            logger.warning(
+                "Error reviewing with %s: %s (after %.2fs)", model_name, error, duration
+            )
             errors[model_name] = error
         elif result is not None:
             source = "cached" if result.cached else "live"
-            print(f"Completed {model_name} in {duration:.2f}s ({source})")
+            logger.info("Completed %s in %.2fs (%s)", model_name, duration, source)
             results[model_name] = result
         else:
             errors[model_name] = "unknown error"
+
+    # Mirror the sync fallback logic: try local models if external providers failed
+    for fallback_model in _build_fallback_candidates(model_list, results, errors):
+        try:
+            fallback_result = await _review_single_async(
+                prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
+            )
+            results[fallback_model] = fallback_result
+            break
+        except Exception as e:
+            errors[fallback_model] = str(e)
+            logger.warning("Error reviewing with %s: %s", fallback_model, e)
 
     if not results:
         raise RuntimeError(
@@ -563,16 +653,27 @@ async def _review_single_async(
     system_prompt: str,
     use_cache: bool,
     cache_ttl: int,
-) -> ReviewResult:
-    """Internal: Async single model review."""
-    # Check cache first (sync operation)
-    if use_cache:
-        cached = get_cached_response(model, prompt, system_prompt, ttl_hours=cache_ttl)
-        if cached:
+) -> "ReviewResult":
+    """Internal: Async single model review. All blocking I/O is offloaded to a thread pool.
+
+    cache_ttl=0 skips both cache reads and writes (per documented contract).
+    """
+    provider_name, model_id = normalize_model_name(model)
+    effective_use_cache = use_cache and cache_ttl > 0
+
+    if effective_use_cache:
+        cached = await asyncio.to_thread(
+            get_cached_response,
+            model_id,
+            prompt,
+            system_prompt,
+            ttl_hours=cache_ttl,
+        )
+        if cached is not None:
             return ReviewResult(
                 ProviderResponse(
                     text=cached,
-                    model=model,
+                    model=model_id,
                     input_tokens=0,
                     output_tokens=0,
                     cost=Decimal("0"),
@@ -581,22 +682,21 @@ async def _review_single_async(
                 cached=True,
             )
 
-    # Get provider and call async
-    provider_name, model_id = normalize_model_name(model)
     provider = get_provider(provider_name)
     response = await provider.complete_async(prompt, model_id, system_prompt)
 
-    # Log usage (sync operation)
-    log_api_call(
+    await asyncio.to_thread(
+        log_api_call,
         model=model_id,
         input_tokens=response.input_tokens,
         output_tokens=response.output_tokens,
-        cost=float(response.cost) if response.cost else 0.0,
+        cost=float(response.cost) if response.cost is not None else 0.0,
         operation="review",
     )
 
-    # Cache response (sync operation)
-    if use_cache:
-        cache_response(model, prompt, response.text, system_prompt)
+    if effective_use_cache:
+        await asyncio.to_thread(
+            cache_response, model_id, prompt, response.text, system_prompt
+        )
 
     return ReviewResult(response, cached=False)

@@ -3,12 +3,16 @@
 Simple retry logic with exponential backoff.
 
 Provides retry decorators for API calls without external dependencies.
+Supports both sync and async functions transparently.
 """
 
-import sys
+import asyncio
+import logging
 import time
 from functools import wraps
-from inspect import signature
+from inspect import iscoroutinefunction, signature
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_retry_context(func, args, kwargs):
@@ -37,9 +41,24 @@ def _extract_retry_context(func, args, kwargs):
     return None
 
 
+def _should_not_retry(error_msg: str) -> bool:
+    """
+    Return True if the error is not retriable (auth/config errors).
+
+    Checks for specific auth-related phrases only — avoids over-matching on
+    "invalid" since it appears in many retriable errors (invalid response, etc).
+    """
+    return any(
+        x in error_msg
+        for x in ["api key", "authentication", "unauthorized", "invalid api key", "403"]
+    )
+
+
 def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_factor=2):
     """
     Decorator to retry a function with exponential backoff.
+
+    Works transparently with both sync and async functions.
 
     Args:
         max_attempts: Maximum number of retry attempts
@@ -51,60 +70,115 @@ def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_fa
         @retry_with_backoff(max_attempts=3)
         def call_api():
             ...
+
+        @retry_with_backoff(max_attempts=3)
+        async def call_api_async():
+            ...
     """
 
     def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            delay = initial_delay
-            last_exception = None
-            context = _extract_retry_context(func, args, kwargs)
-            context_prefix = f"[{context}] " if context else ""
+        if iscoroutinefunction(func):
 
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                delay = initial_delay
+                last_exception = None
+                context = _extract_retry_context(func, args, kwargs)
+                context_prefix = f"[{context}] " if context else ""
 
-                    # Don't retry on certain errors
-                    error_msg = str(e).lower()
-                    if any(
-                        x in error_msg
-                        for x in ["api key", "authentication", "unauthorized", "invalid"]
-                    ):
-                        # Authentication/config errors - don't retry
-                        raise
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        return await func(*args, **kwargs)
+                    except Exception as e:
+                        last_exception = e
+                        error_msg = str(e).lower()
+                        if _should_not_retry(error_msg):
+                            raise
 
-                    if attempt < max_attempts:
-                        # Check if it's a rate limit error
-                        if "429" in error_msg or "rate limit" in error_msg:
-                            print(
-                                f"⏸️  {context_prefix}Rate limited. Retrying in {delay}s... "
-                                f"(attempt {attempt}/{max_attempts})",
-                                file=sys.stderr,
-                            )
+                        if attempt < max_attempts:
+                            if "429" in error_msg or "rate limit" in error_msg:
+                                logger.warning(
+                                    "%sRate limited. Retrying in %ss... (attempt %d/%d)",
+                                    context_prefix,
+                                    delay,
+                                    attempt,
+                                    max_attempts,
+                                )
+                            else:
+                                logger.warning(
+                                    "%sAPI call failed: %s. Retrying in %ss... (attempt %d/%d)",
+                                    context_prefix,
+                                    e,
+                                    delay,
+                                    attempt,
+                                    max_attempts,
+                                )
+                            await asyncio.sleep(delay)
+                            delay = min(delay * backoff_factor, max_delay)
                         else:
-                            print(
-                                f"⚠️  {context_prefix}API call failed: {e}. Retrying in {delay}s... "
-                                f"(attempt {attempt}/{max_attempts})",
-                                file=sys.stderr,
+                            logger.error(
+                                "%sAPI call failed after %d attempts: %s",
+                                context_prefix,
+                                max_attempts,
+                                e,
                             )
 
-                        time.sleep(delay)
-                        delay = min(delay * backoff_factor, max_delay)
-                    else:
-                        print(
-                            f"❌ {context_prefix}API call failed after {max_attempts} "
-                            f"attempts: {e}",
-                            file=sys.stderr,
-                        )
+                if last_exception is None:
+                    raise RuntimeError("Retry wrapper exhausted attempts without exception")
+                raise last_exception
 
-            # If we've exhausted all retries, raise the last exception
-            if last_exception is None:
-                raise RuntimeError("Retry wrapper exhausted attempts without exception")
-            raise last_exception
+            return async_wrapper
 
-        return wrapper
+        else:
+
+            @wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                delay = initial_delay
+                last_exception = None
+                context = _extract_retry_context(func, args, kwargs)
+                context_prefix = f"[{context}] " if context else ""
+
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        return func(*args, **kwargs)
+                    except Exception as e:
+                        last_exception = e
+                        error_msg = str(e).lower()
+                        if _should_not_retry(error_msg):
+                            raise
+
+                        if attempt < max_attempts:
+                            if "429" in error_msg or "rate limit" in error_msg:
+                                logger.warning(
+                                    "%sRate limited. Retrying in %ss... (attempt %d/%d)",
+                                    context_prefix,
+                                    delay,
+                                    attempt,
+                                    max_attempts,
+                                )
+                            else:
+                                logger.warning(
+                                    "%sAPI call failed: %s. Retrying in %ss... (attempt %d/%d)",
+                                    context_prefix,
+                                    e,
+                                    delay,
+                                    attempt,
+                                    max_attempts,
+                                )
+                            time.sleep(delay)
+                            delay = min(delay * backoff_factor, max_delay)
+                        else:
+                            logger.error(
+                                "%sAPI call failed after %d attempts: %s",
+                                context_prefix,
+                                max_attempts,
+                                e,
+                            )
+
+                if last_exception is None:
+                    raise RuntimeError("Retry wrapper exhausted attempts without exception")
+                raise last_exception
+
+            return sync_wrapper
 
     return decorator
