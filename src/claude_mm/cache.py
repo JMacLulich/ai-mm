@@ -29,9 +29,10 @@ def get_cache_dir() -> Path:
 def get_cache_key(model: str, prompt: str, system_prompt: Optional[str] = None) -> str:
     """Generate a cache key from model and prompts.
 
-    Uses incremental hashing with null-byte separators to avoid:
-    - Delimiter-collision: components cannot fake each other's boundaries
-    - Large string allocation: avoids creating a full copy of the prompt in memory
+    Uses incremental hashing with null-byte separators to avoid delimiter-collision
+    (components cannot fake each other's boundaries by embedding the separator).
+    Each component is still copied in memory by .encode(), but large concatenated
+    strings are avoided — the separator is a single null byte, not a colon.
     """
     h = hashlib.sha256()
     h.update(model.encode())
@@ -177,10 +178,13 @@ def clear_cache(older_than_hours: Optional[int] = None) -> int:
         except Exception:
             continue
 
-    # Clean up orphan .tmp files left by interrupted atomic writes
+    # Clean up orphan .tmp files left by interrupted atomic writes.
+    # Only delete files older than 1 hour to avoid racing with active writes.
+    tmp_cutoff = datetime.now(timezone.utc).timestamp() - 3600
     for tmp_file in cache_dir.glob("*.tmp"):
         try:
-            tmp_file.unlink(missing_ok=True)
+            if tmp_file.stat().st_mtime < tmp_cutoff:
+                tmp_file.unlink(missing_ok=True)
         except Exception:
             pass
 

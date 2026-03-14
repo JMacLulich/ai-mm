@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # strings like "error in gpt-4001" matching "400", or "port 4010" matching "401".
 _NON_RETRIABLE_RE = re.compile(
     r"\b(400|401|403|404)\b"
-    r"|api key|authentication|unauthorized|invalid api key",
+    r"|api key|authentication|unauthorized",
     re.IGNORECASE,
 )
 

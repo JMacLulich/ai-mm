@@ -24,6 +24,7 @@ Example usage:
 import asyncio
 import concurrent.futures
 import logging
+import threading
 import time
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -48,16 +49,18 @@ _MAX_WORKERS = 32  # Cap on concurrent provider threads
 # Module-level thread pool to avoid per-call executor allocation overhead.
 # max_workers capped to prevent resource exhaustion from large model lists.
 _REVIEW_EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
+_EXECUTOR_LOCK = threading.Lock()
 
 
 def _get_executor() -> concurrent.futures.ThreadPoolExecutor:
-    """Return the module-level thread pool, creating it if needed."""
+    """Return the module-level thread pool, creating it lazily and safely."""
     global _REVIEW_EXECUTOR
-    if _REVIEW_EXECUTOR is None or _REVIEW_EXECUTOR._shutdown:
-        _REVIEW_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
-            max_workers=_MAX_WORKERS, thread_name_prefix="mm_review"
-        )
-    return _REVIEW_EXECUTOR
+    with _EXECUTOR_LOCK:
+        if _REVIEW_EXECUTOR is None or _REVIEW_EXECUTOR._shutdown:
+            _REVIEW_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_MAX_WORKERS, thread_name_prefix="mm_review"
+            )
+        return _REVIEW_EXECUTOR
 
 
 class AllModelsFailedError(RuntimeError):
@@ -494,9 +497,9 @@ def _review_multi(
             errors[model_name] = f"timed out after {timeout:.1f}s"
             logger.warning("Timed out %s after %.1fs; continuing", model_name, timeout)
     finally:
-        # Cancel futures that haven't started yet; running threads may still complete
-        # but their results will be ignored (they're not in future_to_model tracking).
-        for future in future_to_model:
+        # Cancel only still-pending futures (not-yet-started work).
+        # Completed futures are already in results/errors and should not be touched.
+        for future in pending:
             future.cancel()
 
     # Fallback only triggers when ALL requested models failed — not on partial failure.
