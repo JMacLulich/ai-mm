@@ -341,13 +341,14 @@ def _review_multi(
     timeout = per_model_timeout if per_model_timeout is not None and per_model_timeout > 0 else None
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(models))
-    start_times: Dict[int, float] = {}
+    # Key by future object directly (not id()) to avoid id-reuse bugs
+    start_times: Dict[concurrent.futures.Future, float] = {}
     future_to_model: Dict[concurrent.futures.Future, str] = {}
 
     for m in models:
         logger.info("Starting review with %s...", m)
         future = executor.submit(_review_single, prompt, m, system_prompt, use_cache, cache_ttl)
-        start_times[id(future)] = time.perf_counter()
+        start_times[future] = time.perf_counter()
         future_to_model[future] = m
 
     # Collect results with event-driven waiting (no busy-poll)
@@ -368,7 +369,7 @@ def _review_multi(
 
             for future in done:
                 model_name = future_to_model[future]
-                duration = time.perf_counter() - start_times[id(future)]
+                duration = time.perf_counter() - start_times[future]
                 try:
                     result = future.result()
                     results[model_name] = result
@@ -679,7 +680,6 @@ async def review_async(
     gather_start = time.perf_counter()
     tasks = [run_model(m) for m in model_list]
     results_list = await asyncio.gather(*tasks)
-    elapsed = time.perf_counter() - gather_start
 
     errors: Dict[str, str] = {}
     results: Dict[str, ReviewResult] = {}
@@ -696,18 +696,28 @@ async def review_async(
         else:
             errors[model_name] = "unknown error"
 
-    # Mirror the sync fallback: use remaining time from the overall budget (not fresh budget)
-    # to keep total wall-clock time within the caller's expectations.
-    remaining_fallback = (
-        max(0.0, timeout_seconds - elapsed) if timeout_seconds > 0 else None
+    # Mirror the sync fallback: use remaining time from the overall budget (not fresh budget).
+    # The overall async deadline is: gather_start + timeout_seconds
+    async_deadline = (gather_start + timeout_seconds) if timeout_seconds > 0 else None
+    _async_remaining_now = (
+        (async_deadline - time.perf_counter()) if async_deadline is not None else None
     )
-    if remaining_fallback is not None and remaining_fallback <= 0:
+    if _async_remaining_now is not None and _async_remaining_now <= 0:
         logger.info("Skipping async fallback: deadline already exhausted")
         async_fallback_candidates = []
     else:
         async_fallback_candidates = _build_fallback_candidates(model_list, results, errors)
 
     for fallback_model in async_fallback_candidates:
+        # Recompute remaining time at each iteration (prior fallbacks consume time)
+        remaining_fallback = (
+            max(0.0, async_deadline - time.perf_counter())
+            if async_deadline is not None
+            else None
+        )
+        if remaining_fallback is not None and remaining_fallback <= 0:
+            logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
+            break
         try:
             coro = _review_single_async(
                 prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
