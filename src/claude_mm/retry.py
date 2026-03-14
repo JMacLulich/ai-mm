@@ -15,30 +15,46 @@ from inspect import iscoroutinefunction, signature
 logger = logging.getLogger(__name__)
 
 
-def _extract_retry_context(func, args, kwargs):
-    """Best-effort context string for retry logs (provider/model)."""
-    provider_name = None
-    model_name = None
+def _make_context_extractor(func):
+    """
+    Pre-compute a fast context extractor for a decorated function.
 
-    if args:
-        instance = args[0]
-        class_name = getattr(getattr(instance, "__class__", None), "__name__", "")
-        if class_name.endswith("Provider"):
-            provider_name = class_name.removesuffix("Provider").lower()
-
+    Binds the function's signature once at decoration time to avoid the
+    cost of inspect.signature() on every invocation.
+    """
     try:
-        bound = signature(func).bind_partial(*args, **kwargs)
-        model_name = bound.arguments.get("model")
-    except (TypeError, ValueError):
-        model_name = kwargs.get("model")
+        _sig = signature(func)
+    except (ValueError, TypeError):
+        _sig = None
 
-    if provider_name and model_name:
-        return f"{provider_name}/{model_name}"
-    if provider_name:
-        return provider_name
-    if model_name:
-        return str(model_name)
-    return None
+    def extract(args, kwargs):
+        provider_name = None
+        model_name = None
+
+        if args:
+            instance = args[0]
+            class_name = getattr(getattr(instance, "__class__", None), "__name__", "")
+            if class_name.endswith("Provider"):
+                provider_name = class_name.removesuffix("Provider").lower()
+
+        if _sig is not None:
+            try:
+                bound = _sig.bind_partial(*args, **kwargs)
+                model_name = bound.arguments.get("model")
+            except (TypeError, ValueError):
+                model_name = kwargs.get("model")
+        else:
+            model_name = kwargs.get("model")
+
+        if provider_name and model_name:
+            return f"{provider_name}/{model_name}"
+        if provider_name:
+            return provider_name
+        if model_name:
+            return str(model_name)
+        return None
+
+    return extract
 
 
 def _should_not_retry(error_msg: str) -> bool:
@@ -77,13 +93,16 @@ def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_fa
     """
 
     def decorator(func):
+        # Pre-compute context extractor once to avoid signature() on every call
+        _get_context = _make_context_extractor(func)
+
         if iscoroutinefunction(func):
 
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
                 delay = initial_delay
                 last_exception = None
-                context = _extract_retry_context(func, args, kwargs)
+                context = _get_context(args, kwargs)
                 context_prefix = f"[{context}] " if context else ""
 
                 for attempt in range(1, max_attempts + 1):
@@ -135,7 +154,7 @@ def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_fa
             def sync_wrapper(*args, **kwargs):
                 delay = initial_delay
                 last_exception = None
-                context = _extract_retry_context(func, args, kwargs)
+                context = _get_context(args, kwargs)
                 context_prefix = f"[{context}] " if context else ""
 
                 for attempt in range(1, max_attempts + 1):

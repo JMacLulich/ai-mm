@@ -140,13 +140,15 @@ class Provider(ABC):
         model_info = self.get_model_info(model)
         pricing = model_info.get("pricing", {})
 
+        # Coerce None pricing values to 0 to prevent decimal.InvalidOperation
+        input_price = pricing.get("input") or 0
+        output_price = pricing.get("output") or 0
+
         input_cost = (
-            Decimal(str(input_tokens)) * Decimal(str(pricing.get("input", 0))) / Decimal("1000000")
+            Decimal(str(input_tokens)) * Decimal(str(input_price)) / Decimal("1000000")
         )
         output_cost = (
-            Decimal(str(output_tokens))
-            * Decimal(str(pricing.get("output", 0)))
-            / Decimal("1000000")
+            Decimal(str(output_tokens)) * Decimal(str(output_price)) / Decimal("1000000")
         )
 
         return input_cost + output_cost

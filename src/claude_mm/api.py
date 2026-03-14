@@ -41,6 +41,16 @@ logger = logging.getLogger(__name__)
 
 VALID_FOCUS_VALUES = {"general", "review", "security", "performance", "architecture", "testing"}
 
+__all__ = [
+    "review",
+    "review_async",
+    "plan",
+    "stabilize",
+    "ReviewResult",
+    "MultiReviewResult",
+    "VALID_FOCUS_VALUES",
+]
+
 
 class ReviewResult:
     """Result from a review operation."""
@@ -109,8 +119,11 @@ def _build_fallback_candidates(
 
     overload_failures = sum(1 for error in errors.values() if _is_overload_error(error))
 
+    # Track providers already represented in the model list to avoid double-trying
+    models_providers = {get_provider_for_model(m) for m in models}
+
     candidates = []
-    if overload_failures >= 2 and "lmstudio" not in results and "lmstudio" not in models:
+    if overload_failures >= 2 and get_provider_for_model("lmstudio") not in models_providers:
         logger.info(
             "Detected repeated provider overloads (503/529). "
             "Falling back to local LM Studio (qwen3.5:27b)."
@@ -118,10 +131,16 @@ def _build_fallback_candidates(
         candidates.append("lmstudio")
 
     if external_failure_count > 0 and local_success_count == 0:
+        # "ollama" and "lmstudio" are valid model aliases recognized by normalize_model_name():
+        #   "ollama"   → provider=ollama,   model_id=qwen2.5:14b-instruct
+        #   "lmstudio" → provider=lmstudio, model_id=qwen3.5:27b
         for local_model in ("ollama", "lmstudio"):
-            # Don't retry models that already failed or are already candidates
+            # Skip if this provider is already in the original model list (already tried)
+            # or if already failed/succeeded/queued
+            provider = get_provider_for_model(local_model)
             if (
-                local_model not in results
+                provider not in models_providers
+                and local_model not in results
                 and local_model not in errors
                 and local_model not in candidates
             ):
@@ -140,9 +159,12 @@ def _resolve_cache_ttl(cache_ttl: Optional[int], config: dict) -> int:
     """Resolve effective cache TTL from caller arg and config, with type coercion."""
     raw = cache_ttl if cache_ttl is not None else config.get("cache_ttl_hours", 24)
     try:
-        return int(raw)
+        value = int(raw)
     except (TypeError, ValueError) as e:
         raise ValueError(f"cache_ttl must be an integer number of hours, got {raw!r}") from e
+    if value < 0:
+        raise ValueError(f"cache_ttl must be >= 0, got {value}")
+    return value
 
 
 def _validate_review_args(
@@ -185,7 +207,10 @@ def review(
         cache_ttl: Cache TTL in hours (overrides default; 0 = expire immediately / no cache read)
         on_result: Callback invoked as each model completes (model_name, result, duration_secs).
             Only available in the multi-model sync path.
-        per_model_timeout: Per-model timeout in seconds for multi-model reviews
+        per_model_timeout: Collective timeout in seconds for multi-model reviews. Models still
+            running when the deadline is reached are marked as timed out; 0.0 or None = no
+            timeout. Note: underlying HTTP requests may continue after the timeout — configure
+            provider-level timeouts for true request cancellation.
 
     Returns:
         ReviewResult for single model, MultiReviewResult for multiple models
@@ -212,7 +237,7 @@ def review(
     elif model is not None:
         model_list = [model]
     else:
-        model_list = [config.get("default_models", {}).get("review", "gpt-5.4")]
+        model_list = [str(config.get("default_models", {}).get("review", "gpt-5.4"))]
 
     system_prompt = get_review_system_prompt(focus)
 
@@ -373,8 +398,9 @@ def _review_multi(
             errors[model_name] = f"timed out after {timeout:.1f}s"
             logger.warning("Timed out %s after %.1fs; continuing", model_name, timeout)
     finally:
-        # Always release the executor; timed-out threads may still be running
-        executor.shutdown(wait=False)
+        # cancel_futures=True cancels pending (not yet started) futures;
+        # already-running threads cannot be stopped but will not write results.
+        executor.shutdown(wait=False, cancel_futures=True)
 
     # Try local fallback if external providers failed
     for fallback_model in _build_fallback_candidates(models, results, errors):
@@ -393,9 +419,10 @@ def _review_multi(
             logger.warning("Error reviewing with %s: %s", fallback_model, e)
 
     if not results:
+        error_summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
         raise RuntimeError(
-            "All review models failed after retry attempts. "
-            "Configure at least one working provider and try again."
+            f"All review models failed. Configure at least one working provider and try again. "
+            f"Errors: {error_summary}"
         )
 
     return MultiReviewResult(results, errors=errors)
@@ -437,6 +464,13 @@ def plan(
         >>> plan_result = plan("Add caching layer to API")
         >>> print(plan_result.text)
     """
+    if depth not in {"standard", "deep"}:
+        raise ValueError(f"Invalid depth '{depth}'. Must be 'standard' or 'deep'")
+    if output_format not in {"markdown", "json"}:
+        raise ValueError(f"Invalid output_format '{output_format}'. Must be 'markdown' or 'json'")
+    if rounds < 1:
+        raise ValueError(f"rounds must be >= 1, got {rounds}")
+
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
 
@@ -558,7 +592,7 @@ async def review_async(
     elif model is not None:
         model_list = [model]
     else:
-        model_list = [config.get("default_models", {}).get("review", "gpt-5.4")]
+        model_list = [str(config.get("default_models", {}).get("review", "gpt-5.4"))]
 
     system_prompt = get_review_system_prompt(focus)
 
@@ -639,9 +673,10 @@ async def review_async(
             logger.warning("Error reviewing with %s: %s", fallback_model, e)
 
     if not results:
+        error_summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
         raise RuntimeError(
-            "All review models failed after retry attempts. "
-            "Configure at least one working provider and try again."
+            f"All review models failed. Configure at least one working provider and try again. "
+            f"Errors: {error_summary}"
         )
 
     return MultiReviewResult(results, errors=errors)
