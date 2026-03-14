@@ -402,15 +402,18 @@ def _review_multi(
         # already-running threads cannot be stopped but will not write results.
         executor.shutdown(wait=False, cancel_futures=True)
 
-    # Try local fallback if external providers failed; respect the same timeout if set
+    # Try local fallback if external providers failed.
+    # Use remaining time from the original deadline (not a fresh budget) to keep
+    # total wall-clock time within the caller's expectations.
     for fallback_model in _build_fallback_candidates(models, results, errors):
         fallback_start = time.perf_counter()
+        remaining_for_fallback = max(0.0, deadline - time.perf_counter()) if deadline else None
         fb_exec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             fb_future = fb_exec.submit(
                 _review_single, prompt, fallback_model, system_prompt, use_cache, cache_ttl
             )
-            fallback_result = fb_future.result(timeout=timeout)
+            fallback_result = fb_future.result(timeout=remaining_for_fallback)
             results[fallback_model] = fallback_result
             fallback_duration = time.perf_counter() - fallback_start
             if on_result:
@@ -420,9 +423,9 @@ def _review_multi(
                     logger.warning("on_result callback raised for %s: %s", fallback_model, cb_err)
             break
         except concurrent.futures.TimeoutError:
-            timeout_desc = f"{timeout:.1f}s" if timeout is not None else "unknown"
-            errors[fallback_model] = f"timed out after {timeout_desc}"
-            logger.warning("Timed out fallback %s after %s", fallback_model, timeout_desc)
+            used = f"{remaining_for_fallback:.1f}s" if remaining_for_fallback is not None else "0s"
+            errors[fallback_model] = f"timed out after {used}"
+            logger.warning("Timed out fallback %s after %s", fallback_model, used)
         except Exception as e:
             errors[fallback_model] = str(e)
             logger.warning("Error reviewing with %s: %s", fallback_model, e)
@@ -545,6 +548,13 @@ def stabilize(
         >>> print(result['final_plan'].text)
         >>> print(f"Total cost: ${result['total_cost']:.4f}")
     """
+    if rounds < 1:
+        raise ValueError(f"rounds must be >= 1, got {rounds}")
+    valid_modes = {"migrations", "docs", "infra", None}
+    if mode not in valid_modes:
+        valid_list = sorted(m for m in valid_modes if m)
+        raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_list}")
+
     context_mode = "auto" if mode in {"migrations", "docs", "infra"} else "none"
     plan_result = plan(
         goal=goal,
