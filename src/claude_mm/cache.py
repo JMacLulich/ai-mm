@@ -121,15 +121,17 @@ def cache_response(
 
     tmp_path = None
     try:
-        # Assign tmp_path before json.dump so cleanup works on serialization failure
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=cache_dir, delete=False, suffix=".tmp"
-        ) as tmp_file:
-            tmp_path = tmp_file.name
-            json.dump(cache_data, tmp_file)
+        # Use mkstemp + chmod before writing to eliminate the permission window
+        # where the file exists but hasn't been restricted yet.
+        fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
+        try:
+            os.chmod(tmp_path, 0o600)
+            with os.fdopen(fd, "w") as tmp_file:
+                json.dump(cache_data, tmp_file)
+        except Exception:
+            os.close(fd) if not isinstance(fd, int) else None
+            raise
 
-        # Restrict permissions before making the file visible
-        os.chmod(tmp_path, 0o600)
         # Atomic rename (replaces existing file if present)
         os.replace(tmp_path, cache_file)
     except Exception as e:
