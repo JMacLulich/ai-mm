@@ -43,6 +43,21 @@ VALID_FOCUS_VALUES = {"general", "review", "security", "performance", "architect
 
 
 _MAX_ERROR_MSG_LEN = 200  # Truncate error messages to prevent API key leakage in logs
+_MAX_WORKERS = 32  # Cap on concurrent provider threads
+
+# Module-level thread pool to avoid per-call executor allocation overhead.
+# max_workers capped to prevent resource exhaustion from large model lists.
+_REVIEW_EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
+
+
+def _get_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Return the module-level thread pool, creating it if needed."""
+    global _REVIEW_EXECUTOR
+    if _REVIEW_EXECUTOR is None or _REVIEW_EXECUTOR._shutdown:
+        _REVIEW_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+            max_workers=_MAX_WORKERS, thread_name_prefix="mm_review"
+        )
+    return _REVIEW_EXECUTOR
 
 
 class AllModelsFailedError(RuntimeError):
@@ -416,15 +431,12 @@ def _review_multi(
     # Explicit None check: 0.0 is a valid timeout value (treated as no-op), not infinite wait
     timeout = per_model_timeout if per_model_timeout is not None and per_model_timeout > 0 else None
 
-    # Cap max workers to prevent resource exhaustion on large model lists
-    max_workers = min(len(models), 32)
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    executor = _get_executor()
     # Key by future object directly (not id()) to avoid id-reuse bugs
     start_times: Dict[concurrent.futures.Future, float] = {}
     future_to_model: Dict[concurrent.futures.Future, str] = {}
 
-    # Wrap entire executor lifecycle (including submission) in try/finally
-    # so executor is always shut down even if submission raises
+    # Wrap future submission in try/finally so futures are always cancelled on error
     try:
         for m in models:
             logger.info("Starting review with %s...", m)
@@ -482,9 +494,10 @@ def _review_multi(
             errors[model_name] = f"timed out after {timeout:.1f}s"
             logger.warning("Timed out %s after %.1fs; continuing", model_name, timeout)
     finally:
-        # cancel_futures=True cancels pending (not yet started) futures;
-        # already-running threads cannot be stopped but will not write results.
-        executor.shutdown(wait=False, cancel_futures=True)
+        # Cancel futures that haven't started yet; running threads may still complete
+        # but their results will be ignored (they're not in future_to_model tracking).
+        for future in future_to_model:
+            future.cancel()
 
     # Fallback only triggers when ALL requested models failed — not on partial failure.
     # Compute remaining time from the original deadline to keep total wall-clock time
