@@ -67,6 +67,12 @@ class ReviewResult:
     def __str__(self):
         return self.text
 
+    def __repr__(self):
+        return (
+            f"ReviewResult(model={self.model!r}, cached={self.cached}, "
+            f"tokens={self.input_tokens}+{self.output_tokens}, cost={self.cost})"
+        )
+
 
 class MultiReviewResult:
     """Result from a multi-model review.
@@ -99,6 +105,13 @@ class MultiReviewResult:
 
     def __iter__(self):
         return iter(self.results.items())
+
+    def __repr__(self):
+        models = list(self.results.keys())
+        return (
+            f"MultiReviewResult(models={models!r}, errors={list(self.errors.keys())!r}, "
+            f"fallbacks={list(self.fallback_models)!r}, total_cost={self.total_cost})"
+        )
 
 
 def _is_overload_error(error_message: str) -> bool:
