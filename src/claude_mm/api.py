@@ -53,13 +53,12 @@ class AllModelsFailedError(RuntimeError):
     """
 
     def __init__(self, errors: Dict[str, str]):
-        self.errors = errors
-        # Truncate error messages to avoid leaking sensitive content (e.g., API keys in URLs)
-        truncated = {
+        # Store truncated errors so callers also get safe (non-leaking) strings
+        self.errors = {
             m: (e[:_MAX_ERROR_MSG_LEN] + "..." if len(e) > _MAX_ERROR_MSG_LEN else e)
             for m, e in errors.items()
         }
-        summary = "; ".join(f"{m}: {e}" for m, e in truncated.items())
+        summary = "; ".join(f"{m}: {e}" for m, e in self.errors.items())
         super().__init__(
             f"All review models failed. Configure at least one working provider. "
             f"Errors: {summary}"
@@ -499,21 +498,18 @@ def _review_multi(
         else:
             fallback_candidates = _build_fallback_candidates(models, errors)
 
+        # Run fallback models sequentially (no per-candidate executor needed).
+        # The deadline check above ensures we skip if the overall budget is exhausted.
         for fallback_model in fallback_candidates:
-            fallback_start = time.perf_counter()
             # Recompute at each iteration: prior fallback attempts consume time
-            remaining_for_fallback = (
-                (deadline - time.perf_counter()) if deadline is not None else None
-            )
-            if remaining_for_fallback is not None and remaining_for_fallback <= 0:
+            if deadline is not None and time.perf_counter() >= deadline:
                 logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
                 break
-            fb_exec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            fallback_start = time.perf_counter()
             try:
-                fb_future = fb_exec.submit(
-                    _review_single, prompt, fallback_model, system_prompt, use_cache, cache_ttl
+                fallback_result = _review_single(
+                    prompt, fallback_model, system_prompt, use_cache, cache_ttl
                 )
-                fallback_result = fb_future.result(timeout=remaining_for_fallback)
                 results[fallback_model] = fallback_result
                 sync_fallback_models.add(fallback_model)
                 fallback_duration = time.perf_counter() - fallback_start
@@ -525,20 +521,9 @@ def _review_multi(
                             "on_result callback raised for %s: %s", fallback_model, cb_err
                         )
                 break
-            except concurrent.futures.TimeoutError:
-                used = (
-                    f"{remaining_for_fallback:.1f}s"
-                    if remaining_for_fallback is not None
-                    else "0s"
-                )
-                errors[fallback_model] = f"timed out after {used}"
-                logger.warning("Timed out fallback %s after %s", fallback_model, used)
             except Exception as e:
                 errors[fallback_model] = str(e)
                 logger.warning("Error reviewing with %s: %s", fallback_model, e)
-            finally:
-                # Non-blocking shutdown; underlying thread may still be running
-                fb_exec.shutdown(wait=False, cancel_futures=True)
 
     if not results:
         raise AllModelsFailedError(errors)

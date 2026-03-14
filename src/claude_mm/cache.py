@@ -124,7 +124,13 @@ def cache_response(
         # Use mkstemp so we can chmod before writing any data (eliminate permission window).
         # os.fdopen() transfers fd ownership to the file object; the with block closes it.
         fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        # If os.fdopen() fails, close fd manually to prevent a file descriptor leak
+        try:
+            f = os.fdopen(fd, "w", encoding="utf-8")
+        except Exception:
+            os.close(fd)
+            raise
+        with f:
             os.chmod(tmp_path, 0o600)
             json.dump(cache_data, f)
 
