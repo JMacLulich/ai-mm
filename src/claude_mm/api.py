@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 VALID_FOCUS_VALUES = {"general", "review", "security", "performance", "architecture", "testing"}
 
 
+_MAX_ERROR_MSG_LEN = 200  # Truncate error messages to prevent API key leakage in logs
+
+
 class AllModelsFailedError(RuntimeError):
     """Raised when all review models fail with no successful result.
 
@@ -51,7 +54,12 @@ class AllModelsFailedError(RuntimeError):
 
     def __init__(self, errors: Dict[str, str]):
         self.errors = errors
-        summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
+        # Truncate error messages to avoid leaking sensitive content (e.g., API keys in URLs)
+        truncated = {
+            m: (e[:_MAX_ERROR_MSG_LEN] + "..." if len(e) > _MAX_ERROR_MSG_LEN else e)
+            for m, e in errors.items()
+        }
+        summary = "; ".join(f"{m}: {e}" for m, e in truncated.items())
         super().__init__(
             f"All review models failed. Configure at least one working provider. "
             f"Errors: {summary}"
@@ -306,6 +314,11 @@ def review(
             logger.warning(
                 "on_result callback is ignored for single-model reviews; "
                 "use models=[...] for multi-model review"
+            )
+        if per_model_timeout is not None and per_model_timeout > 0:
+            logger.warning(
+                "per_model_timeout is not applied for single-model sync reviews; "
+                "configure provider-level timeouts or use review_async() for timeout support"
             )
         return _review_single(
             prompt,
