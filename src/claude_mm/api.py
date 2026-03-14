@@ -118,7 +118,11 @@ class MultiReviewResult:
         fallback_models: Optional[set] = None,
     ):
         self.results = results
-        self.errors = errors or {}
+        # Truncate error messages to avoid leaking sensitive content (e.g., API keys)
+        self.errors = {
+            m: (e[:_MAX_ERROR_MSG_LEN] + "..." if len(e) > _MAX_ERROR_MSG_LEN else e)
+            for m, e in (errors or {}).items()
+        }
         self.fallback_models: set = fallback_models or set()
         # Coerce to Decimal to handle providers that return float costs
         self.total_cost = sum(

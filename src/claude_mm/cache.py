@@ -70,7 +70,7 @@ def get_cached_response(
         return None
 
     try:
-        with open(cache_file) as f:
+        with open(cache_file, encoding="utf-8") as f:
             cache_data = json.load(f)
 
         # Support both new UTC-aware and legacy naive timestamps
@@ -124,7 +124,7 @@ def cache_response(
         # Use mkstemp so we can chmod before writing any data (eliminate permission window).
         # os.fdopen() transfers fd ownership to the file object; the with block closes it.
         fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             os.chmod(tmp_path, 0o600)
             json.dump(cache_data, f)
 
