@@ -56,7 +56,7 @@ def _get_executor() -> concurrent.futures.ThreadPoolExecutor:
     """Return the module-level thread pool, creating it lazily and safely."""
     global _REVIEW_EXECUTOR
     with _EXECUTOR_LOCK:
-        if _REVIEW_EXECUTOR is None or _REVIEW_EXECUTOR._shutdown:
+        if _REVIEW_EXECUTOR is None:
             _REVIEW_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
                 max_workers=_MAX_WORKERS, thread_name_prefix="mm_review"
             )
@@ -439,6 +439,8 @@ def _review_multi(
     start_times: Dict[concurrent.futures.Future, float] = {}
     future_to_model: Dict[concurrent.futures.Future, str] = {}
 
+    # Initialize pending before try so the finally block can safely iterate it
+    pending: set = set()
     # Wrap future submission in try/finally so futures are always cancelled on error
     try:
         for m in models:
