@@ -208,10 +208,15 @@ def review(
         cache_ttl: Cache TTL in hours (overrides default; 0 = expire immediately / no cache read)
         on_result: Callback invoked as each model completes (model_name, result, duration_secs).
             Only available in the multi-model sync path.
-        per_model_timeout: Collective timeout in seconds for multi-model reviews. Models still
-            running when the deadline is reached are marked as timed out; 0.0 or None = no
-            timeout. Note: underlying HTTP requests may continue after the timeout — configure
-            provider-level timeouts for true request cancellation.
+        per_model_timeout: Timeout behavior differs by path:
+            - Sync (review): **Collective deadline** — all models share a single budget
+              starting when they are submitted. Models still running when the deadline
+              is reached are marked timed out.
+            - Async (review_async): **Per-model timeout** — each model independently gets
+              this many seconds; concurrent models each get the full budget.
+            0.0 or None = no timeout in both paths. Note: underlying HTTP requests may
+            continue after the timeout — configure provider-level timeouts for true
+            request cancellation.
 
     Returns:
         ReviewResult for single model, MultiReviewResult for multiple models
@@ -492,12 +497,20 @@ def plan(
         >>> plan_result = plan("Add caching layer to API")
         >>> print(plan_result.text)
     """
+    if not goal or not goal.strip():
+        raise ValueError("goal must not be empty")
     if depth not in {"standard", "deep"}:
         raise ValueError(f"Invalid depth '{depth}'. Must be 'standard' or 'deep'")
     if output_format not in {"markdown", "json"}:
         raise ValueError(f"Invalid output_format '{output_format}'. Must be 'markdown' or 'json'")
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}")
+    if context_mode not in {"none", "auto"}:
+        raise ValueError(f"Invalid context_mode '{context_mode}'. Must be 'none' or 'auto'")
+    if not 0.0 <= confidence_threshold <= 1.0:
+        raise ValueError(
+            f"confidence_threshold must be between 0.0 and 1.0, got {confidence_threshold}"
+        )
 
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
