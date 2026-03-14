@@ -681,8 +681,9 @@ async def review_async(
     Includes the same fallback logic as the sync path: if all external providers fail,
     local models (ollama, lmstudio) are tried automatically.
 
-    Note: on_result callback is not supported in the async path. To stream results,
-    use asyncio.gather with individual _review_single_async calls.
+    Note: on_result callback is not supported in the async path. To stream results
+    as each model completes, call review_async() multiple times concurrently with
+    asyncio.gather or asyncio.as_completed.
 
     Raises:
         ValueError: If both model and models are provided, models is empty, focus is invalid,

@@ -29,11 +29,17 @@ def get_cache_dir() -> Path:
 def get_cache_key(model: str, prompt: str, system_prompt: Optional[str] = None) -> str:
     """Generate a cache key from model and prompts.
 
-    Uses JSON serialization to avoid delimiter-collision issues that arise with
-    simple string concatenation when components contain the separator character.
+    Uses incremental hashing with null-byte separators to avoid:
+    - Delimiter-collision: components cannot fake each other's boundaries
+    - Large string allocation: avoids creating a full copy of the prompt in memory
     """
-    content = json.dumps([model, system_prompt or "", prompt], ensure_ascii=False)
-    return hashlib.sha256(content.encode()).hexdigest()
+    h = hashlib.sha256()
+    h.update(model.encode())
+    h.update(b"\x00")
+    h.update((system_prompt or "").encode())
+    h.update(b"\x00")
+    h.update(prompt.encode())
+    return h.hexdigest()
 
 
 def get_cached_response(
