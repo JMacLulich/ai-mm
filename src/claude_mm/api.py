@@ -360,10 +360,18 @@ def review(
                 "use models=[...] for multi-model review"
             )
         if per_model_timeout is not None and per_model_timeout > 0:
-            logger.warning(
-                "per_model_timeout is not applied for single-model sync reviews; "
-                "configure provider-level timeouts or use review_async() for timeout support"
+            # Apply timeout to single-model sync via shared executor for API consistency
+            executor = _get_executor()
+            f = executor.submit(
+                _review_single, prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
             )
+            try:
+                return f.result(timeout=per_model_timeout)
+            except concurrent.futures.TimeoutError:
+                f.cancel()
+                raise AllModelsFailedError(
+                    {model_list[0]: f"timed out after {per_model_timeout:.1f}s"}
+                )
         return _review_single(
             prompt,
             model_list[0],
@@ -539,7 +547,11 @@ def _review_multi(
             logger.info("Skipping local fallback: deadline already exhausted")
             fallback_candidates = []
         else:
-            fallback_candidates = _build_fallback_candidates(models, errors)
+            try:
+                fallback_candidates = _build_fallback_candidates(models, errors)
+            except Exception as e:
+                logger.warning("Failed to determine fallback candidates: %s", _safe_err(e))
+                fallback_candidates = []
 
         # Run fallback models sequentially (no per-candidate executor needed).
         # The deadline check above ensures we skip if the overall budget is exhausted.
