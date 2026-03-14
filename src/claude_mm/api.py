@@ -25,6 +25,7 @@ import asyncio
 import atexit
 import concurrent.futures
 import logging
+import re
 import threading
 import time
 from decimal import Decimal
@@ -47,6 +48,12 @@ VALID_FOCUS_VALUES = frozenset(
 
 
 _MAX_ERROR_MSG_LEN = 200  # Truncate error messages to prevent API key leakage in logs
+
+# Regex to redact common API key patterns before logging
+_API_KEY_PATTERN = re.compile(
+    r"\b(sk-[A-Za-z0-9]{10,}|Bearer\s+[A-Za-z0-9._-]{10,}|api[_-]?key[=:]\s*\S{8,})",
+    re.IGNORECASE,
+)
 _MAX_WORKERS = 32  # Cap on concurrent provider threads
 
 # Module-level thread pool to avoid per-call executor allocation overhead.
@@ -79,8 +86,13 @@ atexit.register(_shutdown_executor)
 
 
 def _safe_err(exc: BaseException) -> str:
-    """Return a truncated, log-safe representation of an exception."""
+    """Return a log-safe representation of an exception.
+
+    Redacts common API key patterns (sk-..., Bearer ...) before truncating
+    to prevent secrets from leaking into logs even when they appear early in the message.
+    """
     msg = str(exc)
+    msg = _API_KEY_PATTERN.sub("[REDACTED]", msg)
     if len(msg) > _MAX_ERROR_MSG_LEN:
         return msg[:_MAX_ERROR_MSG_LEN] + "..."
     return msg
@@ -852,7 +864,11 @@ async def review_async(
     async_fallback_models: set = set()
 
     if not results:
-        async_fallback_candidates = _build_fallback_candidates(model_list, errors)
+        try:
+            async_fallback_candidates = _build_fallback_candidates(model_list, errors)
+        except Exception as e:
+            logger.warning("Failed to determine async fallback candidates: %s", _safe_err(e))
+            async_fallback_candidates = []
         for fallback_model in async_fallback_candidates:
             try:
                 coro = _review_single_async(
