@@ -152,7 +152,7 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
             use_cache=False,
         )
 
-    assert "External providers failed and no local review succeeded yet" in caplog.text
+    assert "External providers failed. Trying local fallback model(s)." in caplog.text
     assert "lmstudio" in result.results
 
 

@@ -140,22 +140,19 @@ def _is_overload_error(error_message: str) -> bool:
 
 def _build_fallback_candidates(
     models: List[str],
-    results: Dict[str, Any],
     errors: Dict[str, str],
 ) -> List[str]:
     """
-    Determine which local fallback models to try based on current results/errors.
+    Determine which local fallback models to try based on current errors.
 
-    Returns an ordered list of fallback candidates to attempt.
+    Only called when results is empty (all models failed). Returns an ordered list
+    of fallback candidates to attempt.
     """
     local_providers = {"ollama", "lmstudio"}
     external_failure_count = 0
-    local_success_count = 0
 
     for model_name in models:
         provider_name = get_provider_for_model(model_name)
-        if provider_name in local_providers and model_name in results:
-            local_success_count += 1
         if provider_name not in local_providers and model_name in errors:
             external_failure_count += 1
 
@@ -172,17 +169,16 @@ def _build_fallback_candidates(
         )
         candidates.append("lmstudio")
 
-    if external_failure_count > 0 and local_success_count == 0:
+    if external_failure_count > 0:
         # "ollama" and "lmstudio" are valid model aliases recognized by normalize_model_name():
         #   "ollama"   → provider=ollama,   model_id=qwen2.5:14b-instruct
         #   "lmstudio" → provider=lmstudio, model_id=qwen3.5:27b
         for local_model in ("ollama", "lmstudio"):
             # Skip if this provider is already in the original model list (already tried)
-            # or if already failed/succeeded/queued
+            # or if already failed/queued
             provider = get_provider_for_model(local_model)
             if (
                 provider not in models_providers
-                and local_model not in results
                 and local_model not in errors
                 and local_model not in candidates
             ):
@@ -190,8 +186,7 @@ def _build_fallback_candidates(
 
         if candidates:
             logger.info(
-                "External providers failed and no local review succeeded yet. "
-                "Trying local fallback model(s)."
+                "External providers failed. Trying local fallback model(s)."
             )
 
     return candidates
@@ -307,6 +302,11 @@ def review(
             effective_timeout = 60.0
 
     if len(model_list) == 1:
+        if on_result is not None:
+            logger.warning(
+                "on_result callback is ignored for single-model reviews; "
+                "use models=[...] for multi-model review"
+            )
         return _review_single(
             prompt,
             model_list[0],
@@ -470,7 +470,7 @@ def _review_multi(
             logger.info("Skipping local fallback: deadline already exhausted")
             fallback_candidates = []
         else:
-            fallback_candidates = _build_fallback_candidates(models, results, errors)
+            fallback_candidates = _build_fallback_candidates(models, errors)
 
         for fallback_model in fallback_candidates:
             fallback_start = time.perf_counter()
@@ -748,7 +748,6 @@ async def review_async(
             duration = time.perf_counter() - start
             return model_name, None, duration, str(exc)
 
-    gather_start = time.perf_counter()
     tasks = [run_model(m) for m in model_list]
     results_list = await asyncio.gather(*tasks)
 
@@ -768,45 +767,29 @@ async def review_async(
             errors[model_name] = "unknown error"
 
     # Async fallback: only triggers when ALL requested models failed (not on partial failure).
-    # The overall async deadline is: gather_start + timeout_seconds
-    async_deadline = (gather_start + timeout_seconds) if timeout_seconds > 0 else None
+    # Fallback gets the same per-model timeout as the main models (true per-model semantics,
+    # consistent with the documented async behavior).
     async_fallback_models: set = set()
 
     if not results:
-        _async_remaining_now = (
-            (async_deadline - time.perf_counter()) if async_deadline is not None else None
-        )
-        if _async_remaining_now is not None and _async_remaining_now <= 0:
-            logger.info("Skipping async fallback: deadline already exhausted")
-            async_fallback_candidates = []
-        else:
-            async_fallback_candidates = _build_fallback_candidates(model_list, results, errors)
-
+        async_fallback_candidates = _build_fallback_candidates(model_list, errors)
         for fallback_model in async_fallback_candidates:
-            # Recompute remaining time at each iteration (prior fallbacks consume time)
-            remaining_fallback = (
-                max(0.0, async_deadline - time.perf_counter())
-                if async_deadline is not None
-                else None
-            )
-            if remaining_fallback is not None and remaining_fallback <= 0:
-                logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
-                break
             try:
                 coro = _review_single_async(
                     prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
                 )
-                if remaining_fallback is not None:
-                    fallback_result = await asyncio.wait_for(coro, timeout=remaining_fallback)
+                if timeout_seconds > 0:
+                    fallback_result = await asyncio.wait_for(coro, timeout=timeout_seconds)
                 else:
                     fallback_result = await coro
                 results[fallback_model] = fallback_result
                 async_fallback_models.add(fallback_model)
                 break
             except asyncio.TimeoutError:
-                used = f"{remaining_fallback:.1f}s" if remaining_fallback is not None else "0s"
-                errors[fallback_model] = f"timed out after {used}"
-                logger.warning("Timed out async fallback %s after %s", fallback_model, used)
+                errors[fallback_model] = f"timed out after {timeout_seconds:.1f}s"
+                logger.warning(
+                    "Timed out async fallback %s after %.1fs", fallback_model, timeout_seconds
+                )
             except Exception as e:
                 errors[fallback_model] = str(e)
                 logger.warning("Error reviewing with %s: %s", fallback_model, e)
