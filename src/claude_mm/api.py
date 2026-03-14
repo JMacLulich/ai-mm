@@ -405,14 +405,18 @@ def _review_multi(
     start_times: Dict[concurrent.futures.Future, float] = {}
     future_to_model: Dict[concurrent.futures.Future, str] = {}
 
-    for m in models:
-        logger.info("Starting review with %s...", m)
-        future = executor.submit(_review_single, prompt, m, system_prompt, use_cache, cache_ttl)
-        start_times[future] = time.perf_counter()
-        future_to_model[future] = m
-
-    # Collect results with event-driven waiting (no busy-poll)
+    # Wrap entire executor lifecycle (including submission) in try/finally
+    # so executor is always shut down even if submission raises
     try:
+        for m in models:
+            logger.info("Starting review with %s...", m)
+            future = executor.submit(
+                _review_single, prompt, m, system_prompt, use_cache, cache_ttl
+            )
+            start_times[future] = time.perf_counter()
+            future_to_model[future] = m
+
+        # Collect results with event-driven waiting (no busy-poll)
         pending = set(future_to_model.keys())
         deadline = (time.perf_counter() + timeout) if timeout else None
 
