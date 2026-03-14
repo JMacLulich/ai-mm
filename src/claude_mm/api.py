@@ -522,9 +522,11 @@ def _review_multi(
             errors[model_name] = f"timed out after {timeout:.1f}s"
             logger.warning("Timed out %s after %.1fs; continuing", model_name, timeout)
     finally:
-        # Cancel only still-pending futures (not-yet-started work).
-        # Completed futures are already in results/errors and should not be touched.
-        for future in pending:
+        # Cancel all tracked futures to cover both:
+        # 1. Mid-submission crash: pending is empty but future_to_model has submitted futures
+        # 2. Timeout path: pending has unfinished futures
+        # Cancelling an already-completed future is a safe no-op.
+        for future in future_to_model:
             future.cancel()
 
     # Fallback only triggers when ALL requested models failed — not on partial failure.
