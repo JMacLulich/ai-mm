@@ -149,8 +149,11 @@ def clear_cache(older_than_hours: Optional[int] = None) -> int:
             if cutoff_ts is not None:
                 if cache_file.stat().st_mtime > cutoff_ts:
                     continue
-            cache_file.unlink(missing_ok=True)
+            # Use missing_ok=False so we only count files we actually deleted
+            cache_file.unlink()
             removed += 1
+        except FileNotFoundError:
+            pass  # File deleted by another process — don't count it
         except Exception:
             continue
 

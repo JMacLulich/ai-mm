@@ -192,13 +192,23 @@ def _resolve_cache_ttl(cache_ttl: Optional[int], config: dict) -> int:
     return value
 
 
+MAX_PROMPT_CHARS = 1_000_000  # ~250k tokens — guard against accidental huge diffs
+
+
 def _validate_review_args(
     model: Optional[str],
     models: Optional[List[str]],
     focus: str,
     per_model_timeout: Optional[float],
+    prompt: str = "",
 ) -> None:
     """Validate shared review() / review_async() arguments, raising ValueError on bad input."""
+    if not prompt or not prompt.strip():
+        raise ValueError("prompt must not be empty")
+    if len(prompt) > MAX_PROMPT_CHARS:
+        raise ValueError(
+            f"prompt is too large ({len(prompt):,} chars). Maximum is {MAX_PROMPT_CHARS:,}."
+        )
     if model is not None and models is not None:
         raise ValueError("Pass either 'model' or 'models', not both")
     if models is not None and not models:
@@ -257,7 +267,7 @@ def review(
         >>> for model, result in results:
         ...     print(f"{model}: {result.text}")
     """
-    _validate_review_args(model, models, focus, per_model_timeout)
+    _validate_review_args(model, models, focus, per_model_timeout, prompt)
 
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
@@ -665,7 +675,7 @@ async def review_async(
         ValueError: If both model and models are provided, models is empty, focus is invalid,
             or per_model_timeout is negative
     """
-    _validate_review_args(model, models, focus, per_model_timeout)
+    _validate_review_args(model, models, focus, per_model_timeout, prompt)
 
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)

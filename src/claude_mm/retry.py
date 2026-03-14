@@ -59,14 +59,26 @@ def _make_context_extractor(func):
 
 def _should_not_retry(error_msg: str) -> bool:
     """
-    Return True if the error is not retriable (auth/config errors).
+    Return True if the error is not retriable (auth/config/client errors).
 
-    Checks for specific auth-related phrases only — avoids over-matching on
-    "invalid" since it appears in many retriable errors (invalid response, etc).
+    Checks for specific auth-related phrases and HTTP client error codes only.
+    Avoids over-matching on "invalid" since it appears in many retriable errors.
+
+    Non-retriable categories:
+    - Auth/config: api key, authentication, unauthorized, 401, 403
+    - Client errors: 400 (bad request), 404 (not found) — these are caller bugs, not transient
     """
     return any(
         x in error_msg
-        for x in ["api key", "authentication", "unauthorized", "invalid api key", "403"]
+        for x in [
+            "api key",
+            "authentication",
+            "unauthorized",
+            "invalid api key",
+            "400",
+            "403",
+            "404",
+        ]
     )
 
 
