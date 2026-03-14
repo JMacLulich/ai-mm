@@ -70,11 +70,12 @@ def test_mm_review_raises_when_all_models_fail(monkeypatch):
 
 
 def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch, caplog):
-    """When 2+ models fail with 503/529 overloads, fallback to LM Studio runs."""
+    """When ALL external models fail with 503/529 overloads, fallback to LM Studio runs."""
 
     class StubProvider:
         def complete(self, prompt, model, system_prompt=None):
-            if model in {"gpt-5.4", "gemini-3.1-pro-preview"}:
+            # All external models fail with overload
+            if model in {"gpt-5.4", "gemini-3.1-pro-preview", "claude-opus-4-6"}:
                 raise Exception("503 Service Unavailable")
 
             if model == "lmstudio" or model == "qwen3.5:27b":
@@ -107,6 +108,7 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
 
     assert "Detected repeated provider overloads (503/529)" in caplog.text
     assert "lmstudio" in result.results
+    assert "lmstudio" in result.fallback_models
 
 
 def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, caplog):

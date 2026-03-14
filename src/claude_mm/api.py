@@ -69,15 +69,26 @@ class ReviewResult:
 
 
 class MultiReviewResult:
-    """Result from a multi-model review."""
+    """Result from a multi-model review.
+
+    Attributes:
+        results: Map of model name → ReviewResult for all successful models.
+        errors: Map of model name → error string for failed/timed-out models.
+        fallback_models: Set of model names that were added by fallback policy
+            (not explicitly requested by the caller). Useful to distinguish requested
+            vs automatically-selected results.
+        total_cost: Sum of costs across all successful results.
+    """
 
     def __init__(
         self,
         results: Dict[str, "ReviewResult"],
         errors: Optional[Dict[str, str]] = None,
+        fallback_models: Optional[set] = None,
     ):
         self.results = results
         self.errors = errors or {}
+        self.fallback_models: set = fallback_models or set()
         # Coerce to Decimal to handle providers that return float costs
         self.total_cost = sum(
             (Decimal(str(r.cost)) for r in results.values() if r.cost is not None), Decimal("0")
@@ -409,47 +420,58 @@ def _review_multi(
         # already-running threads cannot be stopped but will not write results.
         executor.shutdown(wait=False, cancel_futures=True)
 
-    # Try local fallback if external providers failed.
+    # Fallback only triggers when ALL requested models failed — not on partial failure.
     # Compute remaining time from the original deadline to keep total wall-clock time
     # within the caller's expectations. Skip fallback if the deadline is already exhausted.
-    _remaining_now = (deadline - time.perf_counter()) if deadline is not None else None
-    if _remaining_now is not None and _remaining_now <= 0:
-        logger.info("Skipping local fallback: deadline already exhausted")
-        fallback_candidates = []
-    else:
-        fallback_candidates = _build_fallback_candidates(models, results, errors)
+    sync_fallback_models: set = set()
+    if not results:
+        _remaining_now = (deadline - time.perf_counter()) if deadline is not None else None
+        if _remaining_now is not None and _remaining_now <= 0:
+            logger.info("Skipping local fallback: deadline already exhausted")
+            fallback_candidates = []
+        else:
+            fallback_candidates = _build_fallback_candidates(models, results, errors)
 
-    for fallback_model in fallback_candidates:
-        fallback_start = time.perf_counter()
-        # Recompute at each iteration: prior fallback attempts consume time
-        remaining_for_fallback = (deadline - time.perf_counter()) if deadline is not None else None
-        if remaining_for_fallback is not None and remaining_for_fallback <= 0:
-            logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
-            break
-        fb_exec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        try:
-            fb_future = fb_exec.submit(
-                _review_single, prompt, fallback_model, system_prompt, use_cache, cache_ttl
+        for fallback_model in fallback_candidates:
+            fallback_start = time.perf_counter()
+            # Recompute at each iteration: prior fallback attempts consume time
+            remaining_for_fallback = (
+                (deadline - time.perf_counter()) if deadline is not None else None
             )
-            fallback_result = fb_future.result(timeout=remaining_for_fallback)
-            results[fallback_model] = fallback_result
-            fallback_duration = time.perf_counter() - fallback_start
-            if on_result:
-                try:
-                    on_result(fallback_model, fallback_result, fallback_duration)
-                except Exception as cb_err:
-                    logger.warning("on_result callback raised for %s: %s", fallback_model, cb_err)
-            break
-        except concurrent.futures.TimeoutError:
-            used = f"{remaining_for_fallback:.1f}s" if remaining_for_fallback is not None else "0s"
-            errors[fallback_model] = f"timed out after {used}"
-            logger.warning("Timed out fallback %s after %s", fallback_model, used)
-        except Exception as e:
-            errors[fallback_model] = str(e)
-            logger.warning("Error reviewing with %s: %s", fallback_model, e)
-        finally:
-            # Non-blocking shutdown; underlying thread may still be running
-            fb_exec.shutdown(wait=False, cancel_futures=True)
+            if remaining_for_fallback is not None and remaining_for_fallback <= 0:
+                logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
+                break
+            fb_exec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                fb_future = fb_exec.submit(
+                    _review_single, prompt, fallback_model, system_prompt, use_cache, cache_ttl
+                )
+                fallback_result = fb_future.result(timeout=remaining_for_fallback)
+                results[fallback_model] = fallback_result
+                sync_fallback_models.add(fallback_model)
+                fallback_duration = time.perf_counter() - fallback_start
+                if on_result:
+                    try:
+                        on_result(fallback_model, fallback_result, fallback_duration)
+                    except Exception as cb_err:
+                        logger.warning(
+                            "on_result callback raised for %s: %s", fallback_model, cb_err
+                        )
+                break
+            except concurrent.futures.TimeoutError:
+                used = (
+                    f"{remaining_for_fallback:.1f}s"
+                    if remaining_for_fallback is not None
+                    else "0s"
+                )
+                errors[fallback_model] = f"timed out after {used}"
+                logger.warning("Timed out fallback %s after %s", fallback_model, used)
+            except Exception as e:
+                errors[fallback_model] = str(e)
+                logger.warning("Error reviewing with %s: %s", fallback_model, e)
+            finally:
+                # Non-blocking shutdown; underlying thread may still be running
+                fb_exec.shutdown(wait=False, cancel_futures=True)
 
     if not results:
         error_summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
@@ -458,7 +480,7 @@ def _review_multi(
             f"Errors: {error_summary}"
         )
 
-    return MultiReviewResult(results, errors=errors)
+    return MultiReviewResult(results, errors=errors, fallback_models=sync_fallback_models)
 
 
 def plan(
@@ -709,45 +731,49 @@ async def review_async(
         else:
             errors[model_name] = "unknown error"
 
-    # Mirror the sync fallback: use remaining time from the overall budget (not fresh budget).
+    # Async fallback: only triggers when ALL requested models failed (not on partial failure).
     # The overall async deadline is: gather_start + timeout_seconds
     async_deadline = (gather_start + timeout_seconds) if timeout_seconds > 0 else None
-    _async_remaining_now = (
-        (async_deadline - time.perf_counter()) if async_deadline is not None else None
-    )
-    if _async_remaining_now is not None and _async_remaining_now <= 0:
-        logger.info("Skipping async fallback: deadline already exhausted")
-        async_fallback_candidates = []
-    else:
-        async_fallback_candidates = _build_fallback_candidates(model_list, results, errors)
+    async_fallback_models: set = set()
 
-    for fallback_model in async_fallback_candidates:
-        # Recompute remaining time at each iteration (prior fallbacks consume time)
-        remaining_fallback = (
-            max(0.0, async_deadline - time.perf_counter())
-            if async_deadline is not None
-            else None
+    if not results:
+        _async_remaining_now = (
+            (async_deadline - time.perf_counter()) if async_deadline is not None else None
         )
-        if remaining_fallback is not None and remaining_fallback <= 0:
-            logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
-            break
-        try:
-            coro = _review_single_async(
-                prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
+        if _async_remaining_now is not None and _async_remaining_now <= 0:
+            logger.info("Skipping async fallback: deadline already exhausted")
+            async_fallback_candidates = []
+        else:
+            async_fallback_candidates = _build_fallback_candidates(model_list, results, errors)
+
+        for fallback_model in async_fallback_candidates:
+            # Recompute remaining time at each iteration (prior fallbacks consume time)
+            remaining_fallback = (
+                max(0.0, async_deadline - time.perf_counter())
+                if async_deadline is not None
+                else None
             )
-            if remaining_fallback is not None:
-                fallback_result = await asyncio.wait_for(coro, timeout=remaining_fallback)
-            else:
-                fallback_result = await coro
-            results[fallback_model] = fallback_result
-            break
-        except asyncio.TimeoutError:
-            used = f"{remaining_fallback:.1f}s" if remaining_fallback is not None else "0s"
-            errors[fallback_model] = f"timed out after {used}"
-            logger.warning("Timed out async fallback %s after %s", fallback_model, used)
-        except Exception as e:
-            errors[fallback_model] = str(e)
-            logger.warning("Error reviewing with %s: %s", fallback_model, e)
+            if remaining_fallback is not None and remaining_fallback <= 0:
+                logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
+                break
+            try:
+                coro = _review_single_async(
+                    prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
+                )
+                if remaining_fallback is not None:
+                    fallback_result = await asyncio.wait_for(coro, timeout=remaining_fallback)
+                else:
+                    fallback_result = await coro
+                results[fallback_model] = fallback_result
+                async_fallback_models.add(fallback_model)
+                break
+            except asyncio.TimeoutError:
+                used = f"{remaining_fallback:.1f}s" if remaining_fallback is not None else "0s"
+                errors[fallback_model] = f"timed out after {used}"
+                logger.warning("Timed out async fallback %s after %s", fallback_model, used)
+            except Exception as e:
+                errors[fallback_model] = str(e)
+                logger.warning("Error reviewing with %s: %s", fallback_model, e)
 
     if not results:
         error_summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
@@ -756,7 +782,7 @@ async def review_async(
             f"Errors: {error_summary}"
         )
 
-    return MultiReviewResult(results, errors=errors)
+    return MultiReviewResult(results, errors=errors, fallback_models=async_fallback_models)
 
 
 async def _review_single_async(
