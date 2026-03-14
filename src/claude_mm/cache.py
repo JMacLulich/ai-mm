@@ -74,8 +74,8 @@ def get_cached_response(
             return None
 
         return cache_data["response"]
-    except Exception:
-        # Corrupt or unreadable cache file — delete it and treat as miss
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+        # Corrupt, unreadable, or expired cache file — delete it and treat as miss
         cache_file.unlink(missing_ok=True)
         return None
 

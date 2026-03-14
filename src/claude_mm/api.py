@@ -78,8 +78,9 @@ class MultiReviewResult:
     ):
         self.results = results
         self.errors = errors or {}
+        # Coerce to Decimal to handle providers that return float costs
         self.total_cost = sum(
-            (r.cost for r in results.values() if r.cost is not None), Decimal("0")
+            (Decimal(str(r.cost)) for r in results.values() if r.cost is not None), Decimal("0")
         )
 
     def __getitem__(self, model: str) -> "ReviewResult":
@@ -675,8 +676,10 @@ async def review_async(
             duration = time.perf_counter() - start
             return model_name, None, duration, str(exc)
 
+    gather_start = time.perf_counter()
     tasks = [run_model(m) for m in model_list]
     results_list = await asyncio.gather(*tasks)
+    elapsed = time.perf_counter() - gather_start
 
     errors: Dict[str, str] = {}
     results: Dict[str, ReviewResult] = {}
@@ -693,22 +696,32 @@ async def review_async(
         else:
             errors[model_name] = "unknown error"
 
-    # Mirror the sync fallback logic: try local models if external providers failed
-    # Try local fallback; apply the same per-model timeout if set
-    for fallback_model in _build_fallback_candidates(model_list, results, errors):
+    # Mirror the sync fallback: use remaining time from the overall budget (not fresh budget)
+    # to keep total wall-clock time within the caller's expectations.
+    remaining_fallback = (
+        max(0.0, timeout_seconds - elapsed) if timeout_seconds > 0 else None
+    )
+    if remaining_fallback is not None and remaining_fallback <= 0:
+        logger.info("Skipping async fallback: deadline already exhausted")
+        async_fallback_candidates = []
+    else:
+        async_fallback_candidates = _build_fallback_candidates(model_list, results, errors)
+
+    for fallback_model in async_fallback_candidates:
         try:
             coro = _review_single_async(
                 prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
             )
-            if timeout_seconds > 0:
-                fallback_result = await asyncio.wait_for(coro, timeout=timeout_seconds)
+            if remaining_fallback is not None:
+                fallback_result = await asyncio.wait_for(coro, timeout=remaining_fallback)
             else:
                 fallback_result = await coro
             results[fallback_model] = fallback_result
             break
         except asyncio.TimeoutError:
-            errors[fallback_model] = f"timed out after {timeout_seconds:.1f}s"
-            logger.warning("Timed out fallback %s after %.1fs", fallback_model, timeout_seconds)
+            used = f"{remaining_fallback:.1f}s" if remaining_fallback is not None else "0s"
+            errors[fallback_model] = f"timed out after {used}"
+            logger.warning("Timed out async fallback %s after %s", fallback_model, used)
         except Exception as e:
             errors[fallback_model] = str(e)
             logger.warning("Error reviewing with %s: %s", fallback_model, e)
