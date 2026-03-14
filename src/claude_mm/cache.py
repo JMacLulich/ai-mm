@@ -163,6 +163,13 @@ def clear_cache(older_than_hours: Optional[int] = None) -> int:
         except Exception:
             continue
 
+    # Clean up orphan .tmp files left by interrupted atomic writes
+    for tmp_file in cache_dir.glob("*.tmp"):
+        try:
+            tmp_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
     return removed
 
 

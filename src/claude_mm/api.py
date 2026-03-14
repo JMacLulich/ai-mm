@@ -361,13 +361,17 @@ def _review_single(
     provider = get_provider(provider_name)
     response = provider.complete(prompt, model_id, system_prompt)
 
-    log_api_call(
-        model=model_id,
-        input_tokens=response.input_tokens,
-        output_tokens=response.output_tokens,
-        cost=float(response.cost) if response.cost is not None else 0.0,
-        operation="review",
-    )
+    # Non-critical side effects: log failure should not prevent returning the result
+    try:
+        log_api_call(
+            model=model_id,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            cost=float(response.cost) if response.cost is not None else 0.0,
+            operation="review",
+        )
+    except Exception as e:
+        logger.warning("Failed to log API call for %s: %s", model_id, e)
 
     if effective_use_cache:
         cache_response(model_id, prompt, response.text, system_prompt)
@@ -839,14 +843,18 @@ async def _review_single_async(
     provider = get_provider(provider_name)
     response = await provider.complete_async(prompt, model_id, system_prompt)
 
-    await asyncio.to_thread(
-        log_api_call,
-        model=model_id,
-        input_tokens=response.input_tokens,
-        output_tokens=response.output_tokens,
-        cost=float(response.cost) if response.cost is not None else 0.0,
-        operation="review",
-    )
+    # Non-critical side effect: log failure should not prevent returning the result
+    try:
+        await asyncio.to_thread(
+            log_api_call,
+            model=model_id,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            cost=float(response.cost) if response.cost is not None else 0.0,
+            operation="review",
+        )
+    except Exception as e:
+        logger.warning("Failed to log API call for %s: %s", model_id, e)
 
     if effective_use_cache:
         await asyncio.to_thread(
