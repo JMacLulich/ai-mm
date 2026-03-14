@@ -125,12 +125,12 @@ def retry_with_backoff(
                         return await func(*args, **kwargs)
                     except Exception as e:
                         last_exception = e
-                        error_msg = str(e).lower()
+                        error_msg = str(e)
                         if _should_not_retry(error_msg):
                             raise
 
                         if attempt < max_attempts:
-                            if "429" in error_msg or "rate limit" in error_msg:
+                            if "429" in error_msg or "rate limit" in error_msg.lower():
                                 logger.warning(
                                     "%sRate limited. Retrying in %ss... (attempt %d/%d)",
                                     context_prefix,
@@ -180,12 +180,12 @@ def retry_with_backoff(
                         return func(*args, **kwargs)
                     except Exception as e:
                         last_exception = e
-                        error_msg = str(e).lower()
+                        error_msg = str(e)
                         if _should_not_retry(error_msg):
                             raise
 
                         if attempt < max_attempts:
-                            if "429" in error_msg or "rate limit" in error_msg:
+                            if "429" in error_msg or "rate limit" in error_msg.lower():
                                 logger.warning(
                                     "%sRate limited. Retrying in %ss... (attempt %d/%d)",
                                     context_prefix,

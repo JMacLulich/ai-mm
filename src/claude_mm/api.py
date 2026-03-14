@@ -812,7 +812,7 @@ async def review_async(
             return model_name, None, duration, f"timed out after {timeout_seconds:.1f}s"
         except Exception as exc:
             duration = time.perf_counter() - start
-            return model_name, None, duration, str(exc)
+            return model_name, None, duration, _safe_err(exc)
 
     tasks = [run_model(m) for m in model_list]
     results_list = await asyncio.gather(*tasks)
@@ -824,7 +824,7 @@ async def review_async(
             logger.warning(
                 "Error reviewing with %s: %s (after %.2fs)", model_name, error, duration
             )
-            errors[model_name] = error
+            errors[model_name] = error  # already _safe_err'd in run_model
         elif result is not None:
             source = "cached" if result.cached else "live"
             logger.info("Completed %s in %.2fs (%s)", model_name, duration, source)
