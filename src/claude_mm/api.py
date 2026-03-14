@@ -403,11 +403,22 @@ def _review_multi(
         executor.shutdown(wait=False, cancel_futures=True)
 
     # Try local fallback if external providers failed.
-    # Use remaining time from the original deadline (not a fresh budget) to keep
-    # total wall-clock time within the caller's expectations.
-    for fallback_model in _build_fallback_candidates(models, results, errors):
+    # Compute remaining time from the original deadline to keep total wall-clock time
+    # within the caller's expectations. Skip fallback if the deadline is already exhausted.
+    _remaining_now = (deadline - time.perf_counter()) if deadline is not None else None
+    if _remaining_now is not None and _remaining_now <= 0:
+        logger.info("Skipping local fallback: deadline already exhausted")
+        fallback_candidates = []
+    else:
+        fallback_candidates = _build_fallback_candidates(models, results, errors)
+
+    for fallback_model in fallback_candidates:
         fallback_start = time.perf_counter()
-        remaining_for_fallback = max(0.0, deadline - time.perf_counter()) if deadline else None
+        # Recompute at each iteration: prior fallback attempts consume time
+        remaining_for_fallback = (deadline - time.perf_counter()) if deadline is not None else None
+        if remaining_for_fallback is not None and remaining_for_fallback <= 0:
+            logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
+            break
         fb_exec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             fb_future = fb_exec.submit(
