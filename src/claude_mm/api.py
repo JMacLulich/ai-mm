@@ -41,6 +41,22 @@ logger = logging.getLogger(__name__)
 
 VALID_FOCUS_VALUES = {"general", "review", "security", "performance", "architecture", "testing"}
 
+
+class AllModelsFailedError(RuntimeError):
+    """Raised when all review models fail with no successful result.
+
+    Attributes:
+        errors: Map of model name → error string for each failed model.
+    """
+
+    def __init__(self, errors: Dict[str, str]):
+        self.errors = errors
+        summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
+        super().__init__(
+            f"All review models failed. Configure at least one working provider. "
+            f"Errors: {summary}"
+        )
+
 __all__ = [
     "review",
     "review_async",
@@ -48,6 +64,7 @@ __all__ = [
     "stabilize",
     "ReviewResult",
     "MultiReviewResult",
+    "AllModelsFailedError",
     "VALID_FOCUS_VALUES",
 ]
 
@@ -497,11 +514,7 @@ def _review_multi(
                 fb_exec.shutdown(wait=False, cancel_futures=True)
 
     if not results:
-        error_summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
-        raise RuntimeError(
-            f"All review models failed. Configure at least one working provider and try again. "
-            f"Errors: {error_summary}"
-        )
+        raise AllModelsFailedError(errors)
 
     return MultiReviewResult(results, errors=errors, fallback_models=sync_fallback_models)
 
@@ -799,11 +812,7 @@ async def review_async(
                 logger.warning("Error reviewing with %s: %s", fallback_model, e)
 
     if not results:
-        error_summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
-        raise RuntimeError(
-            f"All review models failed. Configure at least one working provider and try again. "
-            f"Errors: {error_summary}"
-        )
+        raise AllModelsFailedError(errors)
 
     return MultiReviewResult(results, errors=errors, fallback_models=async_fallback_models)
 

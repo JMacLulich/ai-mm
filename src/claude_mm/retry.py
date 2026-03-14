@@ -76,6 +76,7 @@ def _should_not_retry(error_msg: str) -> bool:
             "unauthorized",
             "invalid api key",
             "400",
+            "401",
             "403",
             "404",
         ]
