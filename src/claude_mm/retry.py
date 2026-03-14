@@ -8,6 +8,7 @@ Supports both sync and async functions transparently.
 
 import asyncio
 import logging
+import random
 import re
 import time
 from functools import wraps
@@ -82,7 +83,9 @@ def _should_not_retry(error_msg: str) -> bool:
     return bool(_NON_RETRIABLE_RE.search(error_msg))
 
 
-def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_factor=2):
+def retry_with_backoff(
+    max_attempts=3, initial_delay=1, max_delay=10, backoff_factor=2, jitter=True
+):
     """
     Decorator to retry a function with exponential backoff.
 
@@ -93,6 +96,7 @@ def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_fa
         initial_delay: Initial delay in seconds
         max_delay: Maximum delay in seconds
         backoff_factor: Multiplier for delay between attempts
+        jitter: If True, add ±25% random jitter to delays to prevent thundering herd
 
     Example:
         @retry_with_backoff(max_attempts=3)
@@ -144,7 +148,10 @@ def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_fa
                                     attempt,
                                     max_attempts,
                                 )
-                            await asyncio.sleep(delay)
+                            actual_delay = (
+                                delay * (1 + random.uniform(-0.25, 0.25)) if jitter else delay
+                            )
+                            await asyncio.sleep(actual_delay)
                             delay = min(delay * backoff_factor, max_delay)
                         else:
                             logger.error(
@@ -196,7 +203,10 @@ def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_fa
                                     attempt,
                                     max_attempts,
                                 )
-                            time.sleep(delay)
+                            actual_delay = (
+                                delay * (1 + random.uniform(-0.25, 0.25)) if jitter else delay
+                            )
+                            time.sleep(actual_delay)
                             delay = min(delay * backoff_factor, max_delay)
                         else:
                             logger.error(
