@@ -52,12 +52,17 @@ def get_cached_response(
         model: Normalized model ID (not alias) for stable cache keys
         prompt: User prompt
         system_prompt: System prompt (optional)
-        ttl_hours: Time-to-live in hours (default: 24)
+        ttl_hours: Time-to-live in hours (default: 24). 0 or negative = always miss.
 
     Returns:
         Cached response text or None if not found/expired
     """
-    cache_dir = get_cache_dir()
+    if ttl_hours <= 0:
+        return None
+    try:
+        cache_dir = get_cache_dir()
+    except Exception:
+        return None  # Cache dir unavailable — treat as cache miss
     cache_key = get_cache_key(model, prompt, system_prompt)
     cache_file = cache_dir / f"{cache_key}.json"
 
@@ -100,7 +105,11 @@ def cache_response(
         response: API response text
         system_prompt: System prompt (optional)
     """
-    cache_dir = get_cache_dir()
+    try:
+        cache_dir = get_cache_dir()
+    except Exception as e:
+        logger.warning("Cache dir unavailable, skipping cache write: %s", e)
+        return
     cache_key = get_cache_key(model, prompt, system_prompt)
     cache_file = cache_dir / f"{cache_key}.json"
 

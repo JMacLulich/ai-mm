@@ -359,7 +359,7 @@ def _review_single(
             )
 
     provider = get_provider(provider_name)
-    response = provider.complete(prompt, model_id, system_prompt)
+    response = provider.complete(prompt, model_id, system_prompt=system_prompt)
 
     # Non-critical side effects: log failure should not prevent returning the result
     try:
@@ -400,7 +400,9 @@ def _review_multi(
     # Explicit None check: 0.0 is a valid timeout value (treated as no-op), not infinite wait
     timeout = per_model_timeout if per_model_timeout is not None and per_model_timeout > 0 else None
 
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(models))
+    # Cap max workers to prevent resource exhaustion on large model lists
+    max_workers = min(len(models), 32)
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
     # Key by future object directly (not id()) to avoid id-reuse bugs
     start_times: Dict[concurrent.futures.Future, float] = {}
     future_to_model: Dict[concurrent.futures.Future, str] = {}
@@ -565,6 +567,10 @@ def plan(
     """
     if not goal or not goal.strip():
         raise ValueError("goal must not be empty")
+    if len(goal) > MAX_PROMPT_CHARS:
+        raise ValueError(
+            f"goal is too large ({len(goal):,} chars). Maximum is {MAX_PROMPT_CHARS:,}."
+        )
     if depth not in {"standard", "deep"}:
         raise ValueError(f"Invalid depth '{depth}'. Must be 'standard' or 'deep'")
     if output_format not in {"markdown", "json"}:
@@ -640,6 +646,12 @@ def stabilize(
         >>> print(result['final_plan'].text)
         >>> print(f"Total cost: ${result['total_cost']:.4f}")
     """
+    if not goal or not goal.strip():
+        raise ValueError("goal must not be empty")
+    if len(goal) > MAX_PROMPT_CHARS:
+        raise ValueError(
+            f"goal is too large ({len(goal):,} chars). Maximum is {MAX_PROMPT_CHARS:,}."
+        )
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}")
     valid_modes = {"migrations", "docs", "infra", None}
@@ -845,7 +857,7 @@ async def _review_single_async(
             )
 
     provider = get_provider(provider_name)
-    response = await provider.complete_async(prompt, model_id, system_prompt)
+    response = await provider.complete_async(prompt, model_id, system_prompt=system_prompt)
 
     # Non-critical side effect: log failure should not prevent returning the result
     try:
