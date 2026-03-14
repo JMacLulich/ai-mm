@@ -154,9 +154,9 @@ class Provider(ABC):
         return input_cost + output_cost
 
     def __repr__(self) -> str:
-        """Safe repr that masks the API key to prevent leakage in tracebacks/logs."""
+        """Safe repr that fully masks the API key to prevent leakage in tracebacks/logs."""
         cls = self.__class__.__name__
-        key_repr = "None" if self.api_key is None else f"***{self.api_key[-4:]}"
+        key_repr = "None" if self.api_key is None else "<set>"
         return f"{cls}(api_key={key_repr})"
 
     def validate_key(self) -> tuple[bool, str]:

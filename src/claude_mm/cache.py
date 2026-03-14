@@ -160,7 +160,10 @@ def clear_cache(older_than_hours: Optional[int] = None) -> int:
     Returns:
         Number of cache files removed
     """
-    cache_dir = get_cache_dir()
+    try:
+        cache_dir = get_cache_dir()
+    except Exception:
+        return 0
     if not cache_dir.exists():
         return 0
 
@@ -204,7 +207,10 @@ def get_cache_stats() -> dict:
     Returns:
         Dictionary with cache stats
     """
-    cache_dir = get_cache_dir()
+    try:
+        cache_dir = get_cache_dir()
+    except Exception:
+        return {"total_files": 0, "total_size_mb": 0, "oldest": None, "newest": None}
     if not cache_dir.exists():
         return {
             "total_files": 0,

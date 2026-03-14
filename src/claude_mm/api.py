@@ -777,13 +777,13 @@ async def review_async(
             effective_timeout = 60.0
 
     if len(model_list) == 1:
-        return await _review_single_async(
-            prompt,
-            model_list[0],
-            system_prompt,
-            use_cache,
-            effective_cache_ttl,
+        coro = _review_single_async(
+            prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
         )
+        # Apply timeout consistently even for single-model async calls
+        if effective_timeout is not None and effective_timeout > 0:
+            return await asyncio.wait_for(coro, timeout=effective_timeout)
+        return await coro
 
     # Explicit None check for 0.0 consistency with sync path
     timeout_seconds = (
@@ -815,6 +815,8 @@ async def review_async(
             return model_name, None, duration, _safe_err(exc)
 
     tasks = [run_model(m) for m in model_list]
+    # run_model handles all exceptions internally and returns them as tuple values;
+    # asyncio.gather's default behavior (propagate BaseException) is appropriate here.
     results_list = await asyncio.gather(*tasks)
 
     errors: Dict[str, str] = {}
