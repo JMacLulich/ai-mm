@@ -436,7 +436,7 @@ def _review_single(
             operation="review",
         )
     except Exception as e:
-        logger.warning("Failed to log API call for %s: %s", model_id, e)
+        logger.warning("Failed to log API call for %s: %s", model_id, _safe_err(e))
 
     if effective_use_cache:
         cache_response(model_id, prompt, response.text, system_prompt)
@@ -929,7 +929,7 @@ async def _review_single_async(
             operation="review",
         )
     except Exception as e:
-        logger.warning("Failed to log API call for %s: %s", model_id, e)
+        logger.warning("Failed to log API call for %s: %s", model_id, _safe_err(e))
 
     if effective_use_cache:
         await asyncio.to_thread(

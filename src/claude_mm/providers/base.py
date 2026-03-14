@@ -41,6 +41,13 @@ class Provider(ABC):
 
     Providers must implement both sync and async methods to support
     different execution contexts (CLI vs async frameworks).
+
+    **IMPORTANT for implementors:** Configure HTTP-level timeouts in your provider's
+    HTTP client. The orchestration layer (`api._review_multi`) marks requests as
+    timed out and stops waiting, but *cannot* cancel in-flight Python threads.
+    Without provider-level socket timeouts, timed-out threads will continue running
+    and permanently consume thread pool slots, eventually causing executor starvation.
+    Example: ``httpx.Client(timeout=60.0)`` or ``requests.Session()`` with ``timeout=``.
     """
 
     def __init__(self, api_key: Optional[str] = None, **kwargs):
