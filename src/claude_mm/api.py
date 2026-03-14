@@ -22,6 +22,7 @@ Example usage:
 """
 
 import asyncio
+import atexit
 import concurrent.futures
 import logging
 import threading
@@ -40,7 +41,9 @@ from claude_mm.usage import log_api_call
 
 logger = logging.getLogger(__name__)
 
-VALID_FOCUS_VALUES = {"general", "review", "security", "performance", "architecture", "testing"}
+VALID_FOCUS_VALUES = frozenset(
+    {"general", "review", "security", "performance", "architecture", "testing"}
+)
 
 
 _MAX_ERROR_MSG_LEN = 200  # Truncate error messages to prevent API key leakage in logs
@@ -61,6 +64,26 @@ def _get_executor() -> concurrent.futures.ThreadPoolExecutor:
                 max_workers=_MAX_WORKERS, thread_name_prefix="mm_review"
             )
         return _REVIEW_EXECUTOR
+
+
+def _shutdown_executor() -> None:
+    """Shut down the module-level thread pool (called by atexit)."""
+    global _REVIEW_EXECUTOR
+    with _EXECUTOR_LOCK:
+        if _REVIEW_EXECUTOR is not None:
+            _REVIEW_EXECUTOR.shutdown(wait=False)
+            _REVIEW_EXECUTOR = None
+
+
+atexit.register(_shutdown_executor)
+
+
+def _safe_err(exc: BaseException) -> str:
+    """Return a truncated, log-safe representation of an exception."""
+    msg = str(exc)
+    if len(msg) > _MAX_ERROR_MSG_LEN:
+        return msg[:_MAX_ERROR_MSG_LEN] + "..."
+    return msg
 
 
 class AllModelsFailedError(RuntimeError):
@@ -475,7 +498,7 @@ def _review_multi(
                     source = "cached" if result.cached else "live"
                     logger.info("Completed %s in %.2fs (%s)", model_name, duration, source)
                 except Exception as e:
-                    errors[model_name] = str(e)
+                    errors[model_name] = _safe_err(e)
                     logger.warning(
                         "Error reviewing with %s: %s (after %.2fs)", model_name, e, duration
                     )
@@ -540,8 +563,8 @@ def _review_multi(
                         )
                 break
             except Exception as e:
-                errors[fallback_model] = str(e)
-                logger.warning("Error reviewing with %s: %s", fallback_model, e)
+                errors[fallback_model] = _safe_err(e)
+                logger.warning("Error reviewing with %s: %s", fallback_model, _safe_err(e))
 
     if not results:
         raise AllModelsFailedError(errors)
@@ -832,8 +855,8 @@ async def review_async(
                     "Timed out async fallback %s after %.1fs", fallback_model, timeout_seconds
                 )
             except Exception as e:
-                errors[fallback_model] = str(e)
-                logger.warning("Error reviewing with %s: %s", fallback_model, e)
+                errors[fallback_model] = _safe_err(e)
+                logger.warning("Error reviewing with %s: %s", fallback_model, _safe_err(e))
 
     if not results:
         raise AllModelsFailedError(errors)
