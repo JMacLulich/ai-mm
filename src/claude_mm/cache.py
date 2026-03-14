@@ -121,19 +121,16 @@ def cache_response(
 
     tmp_path = None
     try:
-        # Use mkstemp + chmod before writing to eliminate the permission window
-        # where the file exists but hasn't been restricted yet.
+        # Use mkstemp so we can chmod before writing any data (eliminate permission window).
+        # os.fdopen() transfers fd ownership to the file object; the with block closes it.
         fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
-        try:
+        with os.fdopen(fd, "w") as f:
             os.chmod(tmp_path, 0o600)
-            with os.fdopen(fd, "w") as tmp_file:
-                json.dump(cache_data, tmp_file)
-        except Exception:
-            os.close(fd) if not isinstance(fd, int) else None
-            raise
+            json.dump(cache_data, f)
 
         # Atomic rename (replaces existing file if present)
         os.replace(tmp_path, cache_file)
+        tmp_path = None  # Successfully renamed — nothing to clean up
     except Exception as e:
         logger.warning("Failed to cache response: %s", e)
         if tmp_path is not None:
