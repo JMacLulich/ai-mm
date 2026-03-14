@@ -402,21 +402,33 @@ def _review_multi(
         # already-running threads cannot be stopped but will not write results.
         executor.shutdown(wait=False, cancel_futures=True)
 
-    # Try local fallback if external providers failed
+    # Try local fallback if external providers failed; respect the same timeout if set
     for fallback_model in _build_fallback_candidates(models, results, errors):
+        fallback_start = time.perf_counter()
+        fb_exec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            fallback_start = time.perf_counter()
-            fallback_result = _review_single(
-                prompt, fallback_model, system_prompt, use_cache, cache_ttl
+            fb_future = fb_exec.submit(
+                _review_single, prompt, fallback_model, system_prompt, use_cache, cache_ttl
             )
+            fallback_result = fb_future.result(timeout=timeout)
             results[fallback_model] = fallback_result
             fallback_duration = time.perf_counter() - fallback_start
             if on_result:
-                on_result(fallback_model, fallback_result, fallback_duration)
+                try:
+                    on_result(fallback_model, fallback_result, fallback_duration)
+                except Exception as cb_err:
+                    logger.warning("on_result callback raised for %s: %s", fallback_model, cb_err)
             break
+        except concurrent.futures.TimeoutError:
+            timeout_desc = f"{timeout:.1f}s" if timeout is not None else "unknown"
+            errors[fallback_model] = f"timed out after {timeout_desc}"
+            logger.warning("Timed out fallback %s after %s", fallback_model, timeout_desc)
         except Exception as e:
             errors[fallback_model] = str(e)
             logger.warning("Error reviewing with %s: %s", fallback_model, e)
+        finally:
+            # Non-blocking shutdown; underlying thread may still be running
+            fb_exec.shutdown(wait=False, cancel_futures=True)
 
     if not results:
         error_summary = "; ".join(f"{m}: {e}" for m, e in errors.items())
@@ -661,13 +673,21 @@ async def review_async(
             errors[model_name] = "unknown error"
 
     # Mirror the sync fallback logic: try local models if external providers failed
+    # Try local fallback; apply the same per-model timeout if set
     for fallback_model in _build_fallback_candidates(model_list, results, errors):
         try:
-            fallback_result = await _review_single_async(
+            coro = _review_single_async(
                 prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
             )
+            if timeout_seconds > 0:
+                fallback_result = await asyncio.wait_for(coro, timeout=timeout_seconds)
+            else:
+                fallback_result = await coro
             results[fallback_model] = fallback_result
             break
+        except asyncio.TimeoutError:
+            errors[fallback_model] = f"timed out after {timeout_seconds:.1f}s"
+            logger.warning("Timed out fallback %s after %.1fs", fallback_model, timeout_seconds)
         except Exception as e:
             errors[fallback_model] = str(e)
             logger.warning("Error reviewing with %s: %s", fallback_model, e)

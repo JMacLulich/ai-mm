@@ -27,8 +27,12 @@ def get_cache_dir() -> Path:
 
 
 def get_cache_key(model: str, prompt: str, system_prompt: Optional[str] = None) -> str:
-    """Generate a cache key from model and prompts."""
-    content = f"{model}:{system_prompt or ''}:{prompt}"
+    """Generate a cache key from model and prompts.
+
+    Uses JSON serialization to avoid delimiter-collision issues that arise with
+    simple string concatenation when components contain the separator character.
+    """
+    content = json.dumps([model, system_prompt or "", prompt], ensure_ascii=False)
     return hashlib.sha256(content.encode()).hexdigest()
 
 
