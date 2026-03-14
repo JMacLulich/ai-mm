@@ -8,11 +8,21 @@ Supports both sync and async functions transparently.
 
 import asyncio
 import logging
+import re
 import time
 from functools import wraps
 from inspect import iscoroutinefunction, signature
 
 logger = logging.getLogger(__name__)
+
+# Compiled pattern for non-retriable errors.
+# Uses word boundaries (\b) for numeric codes to avoid false positives on
+# strings like "error in gpt-4001" matching "400", or "port 4010" matching "401".
+_NON_RETRIABLE_RE = re.compile(
+    r"\b(400|401|403|404)\b"
+    r"|api key|authentication|unauthorized|invalid api key",
+    re.IGNORECASE,
+)
 
 
 def _make_context_extractor(func):
@@ -61,26 +71,15 @@ def _should_not_retry(error_msg: str) -> bool:
     """
     Return True if the error is not retriable (auth/config/client errors).
 
-    Checks for specific auth-related phrases and HTTP client error codes only.
-    Avoids over-matching on "invalid" since it appears in many retriable errors.
+    Uses regex with word boundaries for numeric HTTP status codes to prevent
+    false positives (e.g., "4001" matching "400", or "model-gpt-4012" matching "401").
 
     Non-retriable categories:
-    - Auth/config: api key, authentication, unauthorized, 401, 403
-    - Client errors: 400 (bad request), 404 (not found) — these are caller bugs, not transient
+    - Auth/config: api key, authentication, unauthorized
+    - HTTP client errors: 400 (bad request), 401 (unauthorized), 403 (forbidden),
+      404 (not found) — these are caller bugs, not transient server errors
     """
-    return any(
-        x in error_msg
-        for x in [
-            "api key",
-            "authentication",
-            "unauthorized",
-            "invalid api key",
-            "400",
-            "401",
-            "403",
-            "404",
-        ]
-    )
+    return bool(_NON_RETRIABLE_RE.search(error_msg))
 
 
 def retry_with_backoff(max_attempts=3, initial_delay=1, max_delay=10, backoff_factor=2):
