@@ -141,6 +141,8 @@ def cmd_review(args):
                 file=sys.stderr,
             )
 
+        local_timeout = getattr(args, "local_model_timeout", None)
+
         if models and len(models) > 1:
             import threading
 
@@ -172,6 +174,7 @@ def cmd_review(args):
                 use_cache=not args.no_cache,
                 on_result=on_result,
                 per_model_timeout=effective_timeout,
+                local_model_timeout=local_timeout,
             )
 
             # Show per-model costs
@@ -466,8 +469,16 @@ def main():
         type=float,
         default=-1.0,
         help=(
-            "Per-model timeout in seconds for multi-model reviews "
-            "(mm/all/fast, default 60s, 0 disables)"
+            "Timeout in seconds for remote models (gpt, gemini, claude, default 60s, 0 disables)"
+        ),
+    )
+    review_parser.add_argument(
+        "--local-model-timeout",
+        type=float,
+        default=None,
+        help=(
+            "Timeout in seconds for local models (ollama, lmstudio). "
+            "Overrides --per-model-timeout for local providers only. Default: 120s."
         ),
     )
     review_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")

@@ -271,12 +271,24 @@ def _resolve_cache_ttl(cache_ttl: Optional[int], config: dict) -> int:
 MAX_PROMPT_CHARS = 1_000_000  # ~250k tokens — guard against accidental huge diffs
 
 
+_LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio"})
+
+
+def _is_local_model(model_name: str) -> bool:
+    """Return True if the model runs on a local provider (ollama or lmstudio)."""
+    try:
+        return get_provider_for_model(model_name) in _LOCAL_PROVIDERS
+    except Exception:
+        return False
+
+
 def _validate_review_args(
     model: Optional[str],
     models: Optional[List[str]],
     focus: str,
     per_model_timeout: Optional[float],
     prompt: str = "",
+    local_model_timeout: Optional[float] = None,
 ) -> None:
     """Validate shared review() / review_async() arguments, raising ValueError on bad input."""
     if not prompt or not prompt.strip():
@@ -293,6 +305,8 @@ def _validate_review_args(
         raise ValueError(f"Invalid focus '{focus}'. Must be one of: {sorted(VALID_FOCUS_VALUES)}")
     if per_model_timeout is not None and per_model_timeout < 0:
         raise ValueError("per_model_timeout must be >= 0")
+    if local_model_timeout is not None and local_model_timeout < 0:
+        raise ValueError("local_model_timeout must be >= 0")
 
 
 def review(
@@ -304,6 +318,7 @@ def review(
     cache_ttl: Optional[int] = None,
     on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
     per_model_timeout: Optional[float] = None,
+    local_model_timeout: Optional[float] = None,
 ) -> Union["ReviewResult", "MultiReviewResult"]:
     """
     Perform code review with one or more AI models.
@@ -318,22 +333,21 @@ def review(
         cache_ttl: Cache TTL in hours (overrides default; 0 = expire immediately / no cache read)
         on_result: Callback invoked as each model completes (model_name, result, duration_secs).
             Only available in the multi-model sync path.
-        per_model_timeout: Timeout behavior differs by path:
-            - Sync (review): **Collective deadline** — all models share a single budget
-              starting when they are submitted. Models still running when the deadline
-              is reached are marked timed out.
-            - Async (review_async): **Per-model timeout** — each model independently gets
-              this many seconds; concurrent models each get the full budget.
-            0.0 or None = no timeout in both paths. Note: underlying HTTP requests may
-            continue after the timeout — configure provider-level timeouts for true
-            request cancellation.
+        per_model_timeout: Timeout in seconds for remote models (gpt, gemini, claude, etc.).
+            0.0 or None uses the configured default (review_per_model_timeout_seconds, 60s).
+            Note: underlying HTTP requests may continue after timeout — configure
+            provider-level timeouts for true request cancellation.
+        local_model_timeout: Timeout in seconds specifically for local models (ollama, lmstudio).
+            Overrides per_model_timeout for local providers only.
+            0.0 or None uses the configured default (local_model_timeout_seconds, 120s).
+            Set higher than per_model_timeout since local models may be slower to respond.
 
     Returns:
         ReviewResult for single model, MultiReviewResult for multiple models
 
     Raises:
         ValueError: If both model and models are provided, models is empty, focus is invalid,
-            or per_model_timeout is negative
+            per_model_timeout is negative, or local_model_timeout is negative
 
     Examples:
         >>> result = review("git diff output", model="gpt")
@@ -343,7 +357,7 @@ def review(
         >>> for model, result in results:
         ...     print(f"{model}: {result.text}")
     """
-    _validate_review_args(model, models, focus, per_model_timeout, prompt)
+    _validate_review_args(model, models, focus, per_model_timeout, prompt, local_model_timeout)
 
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
@@ -357,13 +371,23 @@ def review(
 
     system_prompt = get_review_system_prompt(focus)
 
+    # Resolve remote model timeout
     effective_timeout = per_model_timeout
-    if len(model_list) > 1 and effective_timeout is None:
+    if effective_timeout is None:
         configured_timeout = config.get("review_per_model_timeout_seconds", 60)
         try:
             effective_timeout = float(configured_timeout)
         except (TypeError, ValueError):
             effective_timeout = 60.0
+
+    # Resolve local model timeout (ollama, lmstudio get more time by default)
+    effective_local_timeout = local_model_timeout
+    if effective_local_timeout is None:
+        configured_local = config.get("local_model_timeout_seconds", 120)
+        try:
+            effective_local_timeout = float(configured_local)
+        except (TypeError, ValueError):
+            effective_local_timeout = 120.0
 
     if len(model_list) == 1:
         if on_result is not None:
@@ -371,19 +395,21 @@ def review(
                 "on_result callback is ignored for single-model reviews; "
                 "use models=[...] for multi-model review"
             )
-        if effective_timeout is not None and effective_timeout > 0:
-            # Apply timeout to single-model sync via shared executor for API consistency.
-            # Use effective_timeout (not per_model_timeout) so config-derived timeouts apply too.
+        # Use the appropriate timeout based on whether this is a local model
+        applied_timeout = (
+            effective_local_timeout if _is_local_model(model_list[0]) else effective_timeout
+        )
+        if applied_timeout is not None and applied_timeout > 0:
             executor = _get_executor()
             f = executor.submit(
                 _review_single, prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
             )
             try:
-                return f.result(timeout=effective_timeout)
+                return f.result(timeout=applied_timeout)
             except concurrent.futures.TimeoutError:
                 f.cancel()
                 raise AllModelsFailedError(
-                    {model_list[0]: f"timed out after {effective_timeout:.1f}s"}
+                    {model_list[0]: f"timed out after {applied_timeout:.1f}s"}
                 )
         return _review_single(
             prompt,
@@ -401,6 +427,7 @@ def review(
         effective_cache_ttl,
         on_result,
         effective_timeout,
+        effective_local_timeout,
     )
 
 
@@ -465,18 +492,25 @@ def _review_multi(
     cache_ttl: int,
     on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
     per_model_timeout: Optional[float] = None,
+    local_model_timeout: Optional[float] = None,
 ) -> "MultiReviewResult":
     """
-    Internal: Multi-model review using ThreadPoolExecutor with event-driven completion.
+    Internal: Multi-model review using ThreadPoolExecutor with per-model deadlines.
 
-    Note: Per-model timeout means we stop *waiting* for that model's result; the underlying
-    HTTP request may continue until the provider responds or the network times out.
-    For true request cancellation, configure provider-level timeouts.
+    Local models (ollama, lmstudio) use local_model_timeout; remote models use
+    per_model_timeout. This lets slow local models get more time without delaying
+    the collective result for fast remote models.
+
+    Note: Timeout means we stop *waiting* for that model's result; the underlying
+    HTTP request may continue. Configure provider-level timeouts for true cancellation.
     """
     results: Dict[str, ReviewResult] = {}
     errors: Dict[str, str] = {}
-    # Explicit None check: 0.0 is a valid timeout value (treated as no-op), not infinite wait
-    timeout = per_model_timeout if per_model_timeout is not None and per_model_timeout > 0 else None
+
+    def _effective_timeout_for(model_name: str) -> Optional[float]:
+        """Return the timeout to apply for this specific model."""
+        t = local_model_timeout if _is_local_model(model_name) else per_model_timeout
+        return t if (t is not None and t > 0) else None
 
     executor = _get_executor()
     # Key by future object directly (not id()) to avoid id-reuse bugs
@@ -487,22 +521,58 @@ def _review_multi(
     pending: set = set()
     # Wrap future submission in try/finally so futures are always cancelled on error
     try:
+        now = time.perf_counter()
         for m in models:
             logger.info("Starting review with %s...", m)
             future = executor.submit(
                 _review_single, prompt, m, system_prompt, use_cache, cache_ttl
             )
-            start_times[future] = time.perf_counter()
+            start_times[future] = now
             future_to_model[future] = m
+
+        # Per-model deadlines: local models get local_model_timeout, remotes get per_model_timeout
+        model_deadline: Dict[str, Optional[float]] = {
+            m: ((now + t) if (t := _effective_timeout_for(m)) is not None else None)
+            for m in models
+        }
+        model_timeout_val: Dict[str, Optional[float]] = {
+            m: _effective_timeout_for(m) for m in models
+        }
+
+        if any(v is not None for v in model_timeout_val.values()):
+            local_t = local_model_timeout or 0
+            remote_t = per_model_timeout or 0
+            logger.info(
+                "⏱️  Timeouts — remote: %.0fs, local: %.0fs", remote_t, local_t
+            )
 
         # Collect results with event-driven waiting (no busy-poll)
         pending = set(future_to_model.keys())
-        deadline = (time.perf_counter() + timeout) if timeout else None
 
         while pending:
-            remaining = (deadline - time.perf_counter()) if deadline else None
-            if remaining is not None and remaining <= 0:
-                break
+            # Compute time until the next individual deadline among pending models
+            deadlines = [
+                model_deadline[future_to_model[f]]
+                for f in pending
+                if model_deadline.get(future_to_model[f]) is not None
+            ]
+            next_deadline = min(deadlines) if deadlines else None
+            now = time.perf_counter()
+
+            # If any model's deadline has already passed, handle timeouts immediately
+            if next_deadline is not None and now >= next_deadline:
+                for future in list(pending):
+                    m = future_to_model[future]
+                    d = model_deadline.get(m)
+                    if d is not None and time.perf_counter() >= d:
+                        future.cancel()
+                        pending.discard(future)
+                        t = model_timeout_val.get(m) or 0
+                        errors[m] = f"timed out after {t:.1f}s"
+                        logger.warning("Timed out %s after %.1fs; continuing", m, t)
+                continue  # re-compute next_deadline
+
+            remaining = max(0.0, next_deadline - now) if next_deadline is not None else None
 
             done, pending = concurrent.futures.wait(
                 pending,
@@ -536,15 +606,21 @@ def _review_multi(
                             "on_result callback raised for %s: %s", model_name, _safe_err(e)
                         )
 
-            # If wait returned with no completions, the timeout elapsed
-            if not done and remaining is not None:
-                break
+            # After wait, check per-model timeouts for still-pending futures
+            now = time.perf_counter()
+            for future in list(pending):
+                m = future_to_model[future]
+                d = model_deadline.get(m)
+                if d is not None and now >= d:
+                    future.cancel()
+                    pending.discard(future)
+                    t = model_timeout_val.get(m) or 0
+                    errors[m] = f"timed out after {t:.1f}s"
+                    logger.warning("Timed out %s after %.1fs; continuing", m, t)
 
-        # Mark remaining pending futures as timed out
-        for future in pending:
-            model_name = future_to_model[future]
-            errors[model_name] = f"timed out after {timeout:.1f}s"
-            logger.warning("Timed out %s after %.1fs; continuing", model_name, timeout)
+            # If wait returned with no completions and we had a deadline, loop to re-check
+            # (per-model check above will catch any newly expired models)
+
     finally:
         # Cancel all tracked futures to cover both:
         # 1. Mid-submission crash: pending is empty but future_to_model has submitted futures
@@ -554,11 +630,13 @@ def _review_multi(
             future.cancel()
 
     # Fallback only triggers when ALL requested models failed — not on partial failure.
-    # Compute remaining time from the original deadline to keep total wall-clock time
-    # within the caller's expectations. Skip fallback if the deadline is already exhausted.
+    # Use the latest individual deadline as the budget reference for fallback.
+    latest_deadline = max(
+        (d for d in model_deadline.values() if d is not None), default=None
+    )
     sync_fallback_models: set = set()
     if not results:
-        _remaining_now = (deadline - time.perf_counter()) if deadline is not None else None
+        _remaining_now = (latest_deadline - time.perf_counter()) if latest_deadline else None
         if _remaining_now is not None and _remaining_now <= 0:
             logger.info("Skipping local fallback: deadline already exhausted")
             fallback_candidates = []
@@ -574,7 +652,7 @@ def _review_multi(
         for fallback_model in fallback_candidates:
             # Recompute at each iteration: prior fallback attempts consume time
             remaining_for_fallback = (
-                (deadline - time.perf_counter()) if deadline is not None else None
+                (latest_deadline - time.perf_counter()) if latest_deadline is not None else None
             )
             if remaining_for_fallback is not None and remaining_for_fallback <= 0:
                 logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
@@ -778,6 +856,7 @@ async def review_async(
     use_cache: bool = True,
     cache_ttl: Optional[int] = None,
     per_model_timeout: Optional[float] = None,
+    local_model_timeout: Optional[float] = None,
 ) -> Union["ReviewResult", "MultiReviewResult"]:
     """
     Async version of review(). See review() for full documentation.
@@ -791,9 +870,9 @@ async def review_async(
 
     Raises:
         ValueError: If both model and models are provided, models is empty, focus is invalid,
-            or per_model_timeout is negative
+            per_model_timeout is negative, or local_model_timeout is negative
     """
-    _validate_review_args(model, models, focus, per_model_timeout, prompt)
+    _validate_review_args(model, models, focus, per_model_timeout, prompt, local_model_timeout)
 
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
@@ -807,36 +886,47 @@ async def review_async(
 
     system_prompt = get_review_system_prompt(focus)
 
+    # Resolve remote and local timeouts from params or config
     effective_timeout = per_model_timeout
-    if len(model_list) > 1 and effective_timeout is None:
+    if effective_timeout is None:
         configured_timeout = config.get("review_per_model_timeout_seconds", 60)
         try:
             effective_timeout = float(configured_timeout)
         except (TypeError, ValueError):
             effective_timeout = 60.0
 
+    effective_local_timeout = local_model_timeout
+    if effective_local_timeout is None:
+        configured_local = config.get("local_model_timeout_seconds", 120)
+        try:
+            effective_local_timeout = float(configured_local)
+        except (TypeError, ValueError):
+            effective_local_timeout = 120.0
+
     if len(model_list) == 1:
         coro = _review_single_async(
             prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
         )
-        # Apply timeout consistently even for single-model async calls.
-        # Translate asyncio.TimeoutError → AllModelsFailedError for consistent API contract.
-        if effective_timeout is not None and effective_timeout > 0:
+        # Apply the appropriate timeout for this model (local vs remote)
+        applied_timeout = (
+            effective_local_timeout if _is_local_model(model_list[0]) else effective_timeout
+        )
+        if applied_timeout is not None and applied_timeout > 0:
             try:
-                return await asyncio.wait_for(coro, timeout=effective_timeout)
+                return await asyncio.wait_for(coro, timeout=applied_timeout)
             except asyncio.TimeoutError:
                 raise AllModelsFailedError(
-                    {model_list[0]: f"timed out after {effective_timeout:.1f}s"}
+                    {model_list[0]: f"timed out after {applied_timeout:.1f}s"}
                 )
         return await coro
 
-    # Explicit None check for 0.0 consistency with sync path
-    timeout_seconds = (
-        effective_timeout if effective_timeout is not None and effective_timeout > 0 else 0.0
-    )
-
     async def run_model(model_name: str):
         start = time.perf_counter()
+        # Use per-model timeout: local models get local_model_timeout, remotes get effective_timeout
+        model_t = (
+            effective_local_timeout if _is_local_model(model_name) else effective_timeout
+        )
+        timeout_for_model = model_t if (model_t is not None and model_t > 0) else 0.0
         try:
             coro = _review_single_async(
                 prompt,
@@ -845,8 +935,8 @@ async def review_async(
                 use_cache,
                 effective_cache_ttl,
             )
-            if timeout_seconds > 0:
-                result = await asyncio.wait_for(coro, timeout=timeout_seconds)
+            if timeout_for_model > 0:
+                result = await asyncio.wait_for(coro, timeout=timeout_for_model)
             else:
                 result = await coro
 
@@ -854,7 +944,7 @@ async def review_async(
             return model_name, result, duration, None
         except asyncio.TimeoutError:
             duration = time.perf_counter() - start
-            return model_name, None, duration, f"timed out after {timeout_seconds:.1f}s"
+            return model_name, None, duration, f"timed out after {timeout_for_model:.1f}s"
         except Exception as exc:
             duration = time.perf_counter() - start
             return model_name, None, duration, _safe_err(exc)
@@ -891,21 +981,26 @@ async def review_async(
             logger.warning("Failed to determine async fallback candidates: %s", _safe_err(e))
             async_fallback_candidates = []
         for fallback_model in async_fallback_candidates:
+            # Fallback models are local — apply local timeout
+            fallback_t = (
+                effective_local_timeout if _is_local_model(fallback_model) else effective_timeout
+            )
+            fallback_t = fallback_t if (fallback_t is not None and fallback_t > 0) else 0.0
             try:
                 coro = _review_single_async(
                     prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
                 )
-                if timeout_seconds > 0:
-                    fallback_result = await asyncio.wait_for(coro, timeout=timeout_seconds)
+                if fallback_t > 0:
+                    fallback_result = await asyncio.wait_for(coro, timeout=fallback_t)
                 else:
                     fallback_result = await coro
                 results[fallback_model] = fallback_result
                 async_fallback_models.add(fallback_model)
                 break
             except asyncio.TimeoutError:
-                errors[fallback_model] = f"timed out after {timeout_seconds:.1f}s"
+                errors[fallback_model] = f"timed out after {fallback_t:.1f}s"
                 logger.warning(
-                    "Timed out async fallback %s after %.1fs", fallback_model, timeout_seconds
+                    "Timed out async fallback %s after %.1fs", fallback_model, fallback_t
                 )
             except Exception as e:
                 errors[fallback_model] = _safe_err(e)
