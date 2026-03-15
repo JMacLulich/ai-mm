@@ -518,7 +518,8 @@ def _review_multi(
                 except Exception as e:
                     errors[model_name] = _safe_err(e)
                     logger.warning(
-                        "Error reviewing with %s: %s (after %.2fs)", model_name, e, duration
+                        "Error reviewing with %s: %s (after %.2fs)",
+                        model_name, _safe_err(e), duration
                     )
                     continue
 
