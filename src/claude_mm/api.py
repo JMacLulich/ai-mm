@@ -566,18 +566,22 @@ def _review_multi(
                 logger.warning("Failed to determine fallback candidates: %s", _safe_err(e))
                 fallback_candidates = []
 
-        # Run fallback models sequentially (no per-candidate executor needed).
-        # The deadline check above ensures we skip if the overall budget is exhausted.
+        # Run fallback models via shared executor with remaining-budget timeout.
+        # This enforces the documented collective-deadline semantics during the call itself.
         for fallback_model in fallback_candidates:
             # Recompute at each iteration: prior fallback attempts consume time
-            if deadline is not None and time.perf_counter() >= deadline:
+            remaining_for_fallback = (
+                (deadline - time.perf_counter()) if deadline is not None else None
+            )
+            if remaining_for_fallback is not None and remaining_for_fallback <= 0:
                 logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
                 break
             fallback_start = time.perf_counter()
             try:
-                fallback_result = _review_single(
-                    prompt, fallback_model, system_prompt, use_cache, cache_ttl
+                fb_future = _get_executor().submit(
+                    _review_single, prompt, fallback_model, system_prompt, use_cache, cache_ttl
                 )
+                fallback_result = fb_future.result(timeout=remaining_for_fallback)
                 results[fallback_model] = fallback_result
                 sync_fallback_models.add(fallback_model)
                 fallback_duration = time.perf_counter() - fallback_start
@@ -591,6 +595,10 @@ def _review_multi(
                             _safe_err(cb_err),
                         )
                 break
+            except concurrent.futures.TimeoutError:
+                used = f"{remaining_for_fallback:.1f}s" if remaining_for_fallback else "0s"
+                errors[fallback_model] = f"timed out after {used}"
+                logger.warning("Timed out fallback %s after %s", fallback_model, used)
             except Exception as e:
                 errors[fallback_model] = _safe_err(e)
                 logger.warning("Error reviewing with %s: %s", fallback_model, _safe_err(e))
