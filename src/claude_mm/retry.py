@@ -132,7 +132,11 @@ def retry_with_backoff(
                             raise
 
                         if attempt < max_attempts:
-                            if "429" in error_msg or "rate limit" in error_msg.lower():
+                            is_rate_limit = (
+                                re.search(r"\b429\b", error_msg)
+                                or "rate limit" in error_msg.lower()
+                            )
+                            if is_rate_limit:
                                 logger.warning(
                                     "%sRate limited. Retrying in %ss... (attempt %d/%d)",
                                     context_prefix,
@@ -187,7 +191,11 @@ def retry_with_backoff(
                             raise
 
                         if attempt < max_attempts:
-                            if "429" in error_msg or "rate limit" in error_msg.lower():
+                            is_rate_limit = (
+                                re.search(r"\b429\b", error_msg)
+                                or "rate limit" in error_msg.lower()
+                            )
+                            if is_rate_limit:
                                 logger.warning(
                                     "%sRate limited. Retrying in %ss... (attempt %d/%d)",
                                     context_prefix,

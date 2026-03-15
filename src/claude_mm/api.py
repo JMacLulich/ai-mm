@@ -530,7 +530,9 @@ def _review_multi(
                     try:
                         on_result(model_name, result, duration)
                     except Exception as e:
-                        logger.warning("on_result callback raised for %s: %s", model_name, e)
+                        logger.warning(
+                            "on_result callback raised for %s: %s", model_name, _safe_err(e)
+                        )
 
             # If wait returned with no completions, the timeout elapsed
             if not done and remaining is not None:
@@ -585,7 +587,9 @@ def _review_multi(
                         on_result(fallback_model, fallback_result, fallback_duration)
                     except Exception as cb_err:
                         logger.warning(
-                            "on_result callback raised for %s: %s", fallback_model, cb_err
+                            "on_result callback raised for %s: %s",
+                            fallback_model,
+                            _safe_err(cb_err),
                         )
                 break
             except Exception as e:
