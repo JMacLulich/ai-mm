@@ -85,11 +85,13 @@ def _shutdown_executor() -> None:
 atexit.register(_shutdown_executor)
 
 
-def _safe_err(exc: BaseException) -> str:
-    """Return a log-safe representation of an exception.
+def _safe_err(exc: "Union[BaseException, str]") -> str:
+    """Return a log-safe representation of an exception or string.
 
     Redacts common API key patterns (sk-..., Bearer ...) before truncating
     to prevent secrets from leaking into logs even when they appear early in the message.
+    Accepts both BaseException and plain strings for ergonomic use at both
+    call sites (exception handlers and dict comprehensions).
     """
     msg = str(exc)
     msg = _API_KEY_PATTERN.sub("[REDACTED]", msg)
@@ -109,7 +111,7 @@ class AllModelsFailedError(RuntimeError):
         # Redact and truncate each error string to prevent API key leakage.
         # _safe_err handles both regex-based redaction and length capping.
         # (Input values may already be sanitized, but we apply it defensively here too.)
-        self.errors = {m: _safe_err(RuntimeError(e)) for m, e in errors.items()}
+        self.errors = {m: _safe_err(e) for m, e in errors.items()}
         summary = "; ".join(f"{m}: {e}" for m, e in self.errors.items())
         super().__init__(
             f"All review models failed. Configure at least one working provider. "
@@ -171,7 +173,7 @@ class MultiReviewResult:
         self.results = results
         # Redact and truncate error messages to prevent API key leakage
         self.errors = {
-            m: _safe_err(RuntimeError(e)) for m, e in (errors or {}).items()
+            m: _safe_err(e) for m, e in (errors or {}).items()
         }
         self.fallback_models: set = fallback_models or set()
         # Coerce to Decimal to handle providers that return float costs
