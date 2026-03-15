@@ -371,18 +371,19 @@ def review(
                 "on_result callback is ignored for single-model reviews; "
                 "use models=[...] for multi-model review"
             )
-        if per_model_timeout is not None and per_model_timeout > 0:
-            # Apply timeout to single-model sync via shared executor for API consistency
+        if effective_timeout is not None and effective_timeout > 0:
+            # Apply timeout to single-model sync via shared executor for API consistency.
+            # Use effective_timeout (not per_model_timeout) so config-derived timeouts apply too.
             executor = _get_executor()
             f = executor.submit(
                 _review_single, prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
             )
             try:
-                return f.result(timeout=per_model_timeout)
+                return f.result(timeout=effective_timeout)
             except concurrent.futures.TimeoutError:
                 f.cancel()
                 raise AllModelsFailedError(
-                    {model_list[0]: f"timed out after {per_model_timeout:.1f}s"}
+                    {model_list[0]: f"timed out after {effective_timeout:.1f}s"}
                 )
         return _review_single(
             prompt,
@@ -598,6 +599,7 @@ def _review_multi(
                         )
                 break
             except concurrent.futures.TimeoutError:
+                fb_future.cancel()  # Best-effort: won't stop a running thread but signals intent
                 used = f"{remaining_for_fallback:.1f}s" if remaining_for_fallback else "0s"
                 errors[fallback_model] = f"timed out after {used}"
                 logger.warning("Timed out fallback %s after %s", fallback_model, used)
