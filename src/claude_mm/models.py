@@ -92,9 +92,8 @@ MODEL_GROUPS = {
         "gpt-5.4",
         "gemini",
         "claude-opus-4-6",
-        "ollama",
         "lmstudio",
-    ],  # Multimode includes both local providers
+    ],  # Multimode — lmstudio only (ollama unavailable on i5media)
     "all": ["gpt-5.4", "gemini", "claude-opus-4-6", "ollama", "lmstudio"],
     # All providers
     "fast": [

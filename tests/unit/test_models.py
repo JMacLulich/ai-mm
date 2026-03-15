@@ -63,10 +63,9 @@ class TestModelRegistries:
         assert len(CLAUDE_ALIASES) > 0
         assert "claude" in CLAUDE_ALIASES
 
-    def test_mm_group_includes_local_providers(self):
-        """Multimode reviews include both local providers."""
+    def test_mm_group_includes_lmstudio(self):
+        """Multimode reviews include lmstudio (ollama removed — not available on this machine)."""
         assert "mm" in MODEL_GROUPS
-        assert "ollama" in MODEL_GROUPS["mm"]
         assert "lmstudio" in MODEL_GROUPS["mm"]
 
     def test_lmstudio_models_exist(self):
