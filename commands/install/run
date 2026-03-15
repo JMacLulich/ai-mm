@@ -97,6 +97,29 @@ main() {
         echo "  ✓ ai.yaml"
     fi
 
+    # Install global pre-push hook for advisory AI reviews
+    if [[ -f "$ROOT/hooks/pre-push" ]]; then
+        echo "🔧 Installing global pre-push hook..."
+        local hooks_dir="$HOME/.config/git/hooks"
+        mkdir -p "$hooks_dir"
+        cp "$ROOT/hooks/pre-push" "$hooks_dir/pre-push"
+        chmod +x "$hooks_dir/pre-push"
+
+        # Set global hooksPath if not already configured
+        local current_hooks_path
+        current_hooks_path="$(git config --global core.hooksPath 2>/dev/null || true)"
+        if [[ -z "$current_hooks_path" ]]; then
+            git config --global core.hooksPath "$hooks_dir"
+            echo "  ✓ Global hooks path set to $hooks_dir"
+        elif [[ "$current_hooks_path" == "$hooks_dir" ]]; then
+            echo "  ✓ Global hooks path already configured"
+        else
+            echo "  ⚠ core.hooksPath already set to $current_hooks_path — hook copied but path not changed"
+        fi
+        echo "  ✓ Pre-push hook installed (advisory AI review on every push)"
+        echo "    Skip with: AI_REVIEW_SKIP=1 git push"
+    fi
+
     # Install mm-review skill to ~/.claude
     if [[ -d "$ROOT/claude/skills/mm-review" ]]; then
         echo "🔧 Installing mm-review skill..."
@@ -107,6 +130,17 @@ main() {
         mkdir -p "$HOME/.claude/skills/mm-review"
         cp "$ROOT/claude/skills/mm-review/skill.md" "$HOME/.claude/skills/mm-review/"
         echo "  ✓ Skill installed to ~/.claude/skills/mm-review/"
+    fi
+
+    # Install mm-review-loop skill to ~/.claude
+    if [[ -d "$ROOT/claude/skills/mm-review-loop" ]]; then
+        echo "🔧 Installing mm-review-loop skill..."
+        if [[ -L "$HOME/.claude/skills/mm-review-loop" ]]; then
+            rm "$HOME/.claude/skills/mm-review-loop"
+        fi
+        mkdir -p "$HOME/.claude/skills/mm-review-loop"
+        cp "$ROOT/claude/skills/mm-review-loop/SKILL.md" "$HOME/.claude/skills/mm-review-loop/"
+        echo "  ✓ Skill installed to ~/.claude/skills/mm-review-loop/"
     fi
 
     # Check API keys
