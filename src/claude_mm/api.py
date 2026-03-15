@@ -106,11 +106,10 @@ class AllModelsFailedError(RuntimeError):
     """
 
     def __init__(self, errors: Dict[str, str]):
-        # Store truncated errors so callers also get safe (non-leaking) strings
-        self.errors = {
-            m: (e[:_MAX_ERROR_MSG_LEN] + "..." if len(e) > _MAX_ERROR_MSG_LEN else e)
-            for m, e in errors.items()
-        }
+        # Redact and truncate each error string to prevent API key leakage.
+        # _safe_err handles both regex-based redaction and length capping.
+        # (Input values may already be sanitized, but we apply it defensively here too.)
+        self.errors = {m: _safe_err(RuntimeError(e)) for m, e in errors.items()}
         summary = "; ".join(f"{m}: {e}" for m, e in self.errors.items())
         super().__init__(
             f"All review models failed. Configure at least one working provider. "
@@ -170,10 +169,9 @@ class MultiReviewResult:
         fallback_models: Optional[set] = None,
     ):
         self.results = results
-        # Truncate error messages to avoid leaking sensitive content (e.g., API keys)
+        # Redact and truncate error messages to prevent API key leakage
         self.errors = {
-            m: (e[:_MAX_ERROR_MSG_LEN] + "..." if len(e) > _MAX_ERROR_MSG_LEN else e)
-            for m, e in (errors or {}).items()
+            m: _safe_err(RuntimeError(e)) for m, e in (errors or {}).items()
         }
         self.fallback_models: set = fallback_models or set()
         # Coerce to Decimal to handle providers that return float costs
