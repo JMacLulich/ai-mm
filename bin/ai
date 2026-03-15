@@ -24,6 +24,7 @@ Examples:
 """
 
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -438,6 +439,14 @@ def cmd_check_models(args):
 
 def main():
     """Main CLI entry point."""
+    # Configure logging so warnings from the API layer (timeouts, errors) appear on stderr.
+    # Only WARNING+ to avoid noisy INFO logs from libraries.
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(message)s",
+        stream=sys.stderr,
+    )
+
     # Load config (available for future extension)
     _ = load_config()
 
