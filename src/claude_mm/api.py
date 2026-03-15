@@ -808,9 +808,15 @@ async def review_async(
         coro = _review_single_async(
             prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
         )
-        # Apply timeout consistently even for single-model async calls
+        # Apply timeout consistently even for single-model async calls.
+        # Translate asyncio.TimeoutError → AllModelsFailedError for consistent API contract.
         if effective_timeout is not None and effective_timeout > 0:
-            return await asyncio.wait_for(coro, timeout=effective_timeout)
+            try:
+                return await asyncio.wait_for(coro, timeout=effective_timeout)
+            except asyncio.TimeoutError:
+                raise AllModelsFailedError(
+                    {model_list[0]: f"timed out after {effective_timeout:.1f}s"}
+                )
         return await coro
 
     # Explicit None check for 0.0 consistency with sync path
