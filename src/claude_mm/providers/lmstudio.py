@@ -4,6 +4,8 @@ import os
 from decimal import Decimal
 from typing import Optional
 
+from claude_mm.retry import retry_with_backoff
+
 from .base import Provider, ProviderError, ProviderResponse
 
 
@@ -37,6 +39,7 @@ class LMStudioProvider(Provider):
         except Exception:
             return ""
 
+    @retry_with_backoff(max_attempts=2, initial_delay=1, max_delay=5)
     def complete(
         self,
         prompt: str,
