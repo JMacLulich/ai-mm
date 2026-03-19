@@ -86,10 +86,21 @@ The output will show:
 
 ### Step 5: Summarize Results
 
-Present a structured summary:
+Present a structured summary. **Always lead with the Priority Summary Table** so the user can immediately see what to tackle first:
 
 ```markdown
 # Multi-Model Review Summary
+
+## Summary of Top Recommendations
+| Priority | Issue | Action |
+|----------|-------|--------|
+| 🔴 Critical | [Consensus issues - all models agree] | [Specific action] |
+| 🔴 Critical | [Consensus issues - all models agree] | [Specific action] |
+| 🟠 High | [2/3 models agree] | [Specific action] |
+| 🟠 High | [2/3 models agree] | [Specific action] |
+| 🟡 Medium | [Single model flagged, valid concern] | [Specific action] |
+| 🟡 Medium | [Single model flagged, valid concern] | [Specific action] |
+| 🔵 Low | [Nice-to-have improvements] | [Specific action] |
 
 ## GPT Findings
 [Summarize GPT's key points - top 3-5 issues]
@@ -97,7 +108,7 @@ Present a structured summary:
 ## Gemini Findings
 [Summarize Gemini's key points - top 3-5 issues]
 
-## Claude Opus 4.5 Findings
+## Claude Opus Findings
 [Summarize Opus's key points - top 3-5 issues]
 
 ## Consensus Issues
@@ -108,11 +119,13 @@ Present a structured summary:
 
 ## Divergent Perspectives
 [Where models disagree - user should investigate further]
-
-## Recommended Actions
-1. [Prioritized action items based on consensus]
-2. ...
 ```
+
+**Priority level guidelines:**
+- 🔴 **Critical**: All models agree, or any single model flags a genuine security/data-loss risk
+- 🟠 **High**: 2/3 models agree, or architectural issues that compound over time
+- 🟡 **Medium**: Single model flagged, valid concern but not urgent
+- 🔵 **Low**: Nice-to-have improvements, style suggestions, minor optimizations
 
 ### Step 6: Offer Follow-Up
 
