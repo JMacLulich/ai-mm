@@ -208,6 +208,19 @@ When user selects "Testing", the models should analyze:
 - **Internationalization**: Locale handling, timezone, character encoding in tests
 - **CI/CD**: Test execution time, parallelization, test result reporting
 - **Mutation Testing**: Weak assertions, code coverage vs actual test quality
+- **Integration Test Environment**: Integration tests MUST spin up the full environment via Docker (or equivalent container orchestration) — NOT mocked services, NOT a shared dev database. This includes: running `docker-compose up` (or equivalent), applying all database migrations from scratch, seeding baseline fixtures, and tearing down cleanly after the suite. If integration tests connect to anything that wasn't started by the test harness itself, that is a **critical** finding.
+
+### Hard Rule: Integration Test Environment (Non-Negotiable)
+
+> **This check is MANDATORY and must be raised as 🔴 Critical if violated — regardless of what any individual model says.**
+>
+> Integration tests must:
+> 1. Use Docker (or equivalent) to spin up the **entire** environment from scratch
+> 2. Apply **all** database migrations before tests run (not a pre-seeded snapshot)
+> 3. Tear down cleanly after the suite completes
+> 4. Never connect to a shared dev/staging database or rely on pre-existing state
+>
+> If you see integration tests that skip any of these — mock the DB, use a hardcoded connection string, skip migrations, or assume a pre-configured environment — flag it as **Critical** and recommend `docker-compose`-based test harness with migration apply step.
 
 Example output:
 ```
