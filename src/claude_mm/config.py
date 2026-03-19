@@ -17,7 +17,7 @@ DEFAULT_CONFIG = {
         "review": "gpt-5.4",  # GPT-5.4 for deeper, more rigorous reviews
     },
     "review_per_model_timeout_seconds": 60,
-    "local_model_timeout_seconds": 120,  # longer timeout for local models (ollama, lmstudio)
+    "local_model_timeout_seconds": 240,  # longer timeout for local models (ollama, lmstudio)
     "cost_warning_threshold": 0.10,
     "cache_ttl_hours": 24,
     "planning": {
