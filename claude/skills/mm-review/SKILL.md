@@ -215,12 +215,26 @@ When user selects "Testing", the models should analyze:
 > **This check is MANDATORY and must be raised as 🔴 Critical if violated — regardless of what any individual model says.**
 >
 > Integration tests must:
-> 1. Use Docker (or equivalent) to spin up the **entire** environment from scratch
+> 1. Use Docker (or equivalent) to spin up the **entire** environment from scratch — this means constructing a **new, dedicated test container**, never reusing or modifying an existing one
 > 2. Apply **all** database migrations before tests run (not a pre-seeded snapshot)
 > 3. Tear down cleanly after the suite completes
 > 4. Never connect to a shared dev/staging database or rely on pre-existing state
 >
 > If you see integration tests that skip any of these — mock the DB, use a hardcoded connection string, skip migrations, or assume a pre-configured environment — flag it as **Critical** and recommend `docker-compose`-based test harness with migration apply step.
+
+> **⛔ PRODUCTION SAFETY RULE — NON-NEGOTIABLE:**
+>
+> When verifying or setting up test infrastructure, you must **NEVER**:
+> - Stop, remove, restart, or modify any existing Docker container or service
+> - Connect to or alter any running database that was not started by the test harness itself
+> - Assume that an already-running container is safe to repurpose for tests
+>
+> You **MUST** always:
+> - Construct a **brand-new** test container (e.g., via `docker-compose -f docker-compose.test.yml up` or a dedicated test profile)
+> - Use a distinct name/project namespace (e.g., `myapp-test`, not `myapp`) to avoid conflicts with production
+> - Verify no existing containers are stopped or destroyed as a side-effect
+>
+> If any proposed test setup step would touch a container that was not freshly created by that test run, flag it as **🔴 Critical** and require a clean isolated test container instead.
 
 Example output:
 ```
