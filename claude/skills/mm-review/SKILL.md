@@ -228,13 +228,20 @@ When user selects "Testing", the models should analyze:
 > - Stop, remove, restart, or modify any existing Docker container or service
 > - Connect to or alter any running database that was not started by the test harness itself
 > - Assume that an already-running container is safe to repurpose for tests
+> - Use `docker compose down -v` against the production project name
 >
 > You **MUST** always:
-> - Construct a **brand-new** test container (e.g., via `docker-compose -f docker-compose.test.yml up` or a dedicated test profile)
-> - Use a distinct name/project namespace (e.g., `myapp-test`, not `myapp`) to avoid conflicts with production
-> - Verify no existing containers are stopped or destroyed as a side-effect
+> - Construct a **brand-new** test container via a dedicated `docker-compose.test.yml`
+> - Use a distinct project namespace (`-p myapp-test` or `COMPOSE_PROJECT_NAME=myapp-test`) — never the same project name as production
+> - Use an **anonymous volume** (not a bind mount) so test data is intentionally discarded
+> - Apply **all migrations from scratch** via a `migration-init` service before tests run
+> - Seed deterministic test fixtures after migrations complete
+> - Always `docker compose down -v` with the **test project name** after the suite completes
+> - Verify production is untouched after tests: `docker compose -p myapp ps`
 >
 > If any proposed test setup step would touch a container that was not freshly created by that test run, flag it as **🔴 Critical** and require a clean isolated test container instead.
+>
+> **Canonical reference:** `~/.claude/skills/docker-database-setup/docs/docker/DOCKER-PROD-VS-TEST-ISOLATION.md`
 
 Example output:
 ```
