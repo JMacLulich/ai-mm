@@ -132,6 +132,7 @@ class TestBuildMenuRows:
         assert "openai" in provider_names
         assert "google" in provider_names
         assert "anthropic" in provider_names
+        assert "alibaba" in provider_names
         assert "ollama" in provider_names
         assert "lmstudio" in provider_names
         assert "review timeout" in provider_names
@@ -174,6 +175,12 @@ class TestBuildMenuRows:
         rows = _build_menu_rows(keys)
         lmstudio_row = next(r for r in rows if r["provider"] == "lmstudio")
         assert lmstudio_row["masked"] == "http://127.0.0.1:1234/v1"
+
+    def test_alibaba_key_is_masked(self):
+        keys = {"DASHSCOPE_API_KEY": "dashscope-1234567890abcd"}
+        rows = _build_menu_rows(keys)
+        alibaba_row = next(r for r in rows if r["provider"] == "alibaba")
+        assert alibaba_row["masked"] == "dashscop...abcd"
 
 
 class TestPromptForValue:

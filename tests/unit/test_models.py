@@ -8,6 +8,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from claude_mm.models import (
+    ALIBABA_ALIASES,
+    ALIBABA_MODELS,
     CLAUDE_ALIASES,
     CLAUDE_MODELS,
     GEMINI_ALIASES,
@@ -63,6 +65,16 @@ class TestModelRegistries:
         assert len(CLAUDE_ALIASES) > 0
         assert "claude" in CLAUDE_ALIASES
 
+    def test_alibaba_models_exist(self):
+        """Alibaba Cloud DashScope models registry is not empty."""
+        assert len(ALIBABA_MODELS) > 0
+        assert "qwen3.6-35b-a3b" in ALIBABA_MODELS
+
+    def test_alibaba_aliases_exist(self):
+        """Alibaba Cloud DashScope aliases are properly defined."""
+        assert len(ALIBABA_ALIASES) > 0
+        assert "alibaba" in ALIBABA_ALIASES
+
     def test_mm_group_includes_local_providers(self):
         """Multimode reviews include both local providers."""
         assert "mm" in MODEL_GROUPS
@@ -111,6 +123,15 @@ class TestGetProviderForModel:
         """Claude aliases resolve to 'anthropic' provider."""
         assert get_provider_for_model("claude") == "anthropic"
 
+    def test_alibaba_models(self):
+        """Alibaba models resolve to 'alibaba' provider."""
+        assert get_provider_for_model("qwen3.6-35b-a3b") == "alibaba"
+
+    def test_alibaba_aliases(self):
+        """Alibaba aliases resolve to 'alibaba' provider."""
+        assert get_provider_for_model("alibaba") == "alibaba"
+        assert get_provider_for_model("dashscope") == "alibaba"
+
     def test_unknown_model(self):
         """Unknown models return None."""
         assert get_provider_for_model("unknown-model") is None
@@ -123,6 +144,21 @@ class TestGetProviderForModel:
     def test_lmstudio_aliases(self):
         """LM Studio aliases resolve to 'lmstudio' provider."""
         assert get_provider_for_model("lmstudio") == "lmstudio"
+
+    def test_qwen36_alias_prefers_cloud_when_configured(self, monkeypatch):
+        """Qwen 3.6 alias uses Alibaba Cloud when DashScope is configured."""
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
+
+        assert get_provider_for_model("qwen3.6") == "alibaba"
+
+    def test_qwen36_alias_uses_local_when_cloud_missing(self, monkeypatch):
+        """Qwen 3.6 alias uses local LM Studio when cloud is not configured."""
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALIBABA_API_KEY", raising=False)
+        monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
+
+        assert get_provider_for_model("qwen3.6") == "lmstudio"
 
 
 class TestNormalizeModelName:
@@ -189,6 +225,16 @@ class TestNormalizeModelName:
         assert provider == "anthropic"
         assert model == "claude-opus-4-6"
 
+    def test_alibaba_aliases(self):
+        """Alibaba aliases resolve to API names."""
+        provider, model = normalize_model_name("alibaba")
+        assert provider == "alibaba"
+        assert model == "qwen3.6-35b-a3b"
+
+        provider, model = normalize_model_name("qwen3.6-cloud")
+        assert provider == "alibaba"
+        assert model == "qwen3.6-35b-a3b"
+
     def test_unknown_model_raises(self):
         """Unknown models raise ValueError."""
         with pytest.raises(ValueError, match="Unknown model"):
@@ -200,6 +246,25 @@ class TestNormalizeModelName:
     def test_lmstudio_alias(self):
         """LM Studio alias resolves correctly."""
         provider, model = normalize_model_name("lmstudio")
+        assert provider == "lmstudio"
+        assert model == "qwen/qwen3.6-35b-a3b"
+
+    def test_qwen36_alias_prefers_cloud_when_configured(self, monkeypatch):
+        """Qwen 3.6 alias resolves to cloud when DashScope is configured."""
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
+
+        provider, model = normalize_model_name("qwen3.6")
+        assert provider == "alibaba"
+        assert model == "qwen3.6-35b-a3b"
+
+    def test_qwen36_alias_uses_local_when_cloud_missing(self, monkeypatch):
+        """Qwen 3.6 alias resolves to local LM Studio when cloud is not configured."""
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALIBABA_API_KEY", raising=False)
+        monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
+
+        provider, model = normalize_model_name("qwen3.6")
         assert provider == "lmstudio"
         assert model == "qwen/qwen3.6-35b-a3b"
 
@@ -229,6 +294,10 @@ class TestGetModelDisplayName:
     def test_lmstudio_display_name(self):
         """LM Studio model has proper display name."""
         assert get_model_display_name("qwen/qwen3.6-35b-a3b") == "Qwen 3.6 35B A3B (LM Studio)"
+
+    def test_alibaba_display_name(self):
+        """Alibaba Cloud model has proper display name."""
+        assert get_model_display_name("qwen3.6-35b-a3b") == "Qwen 3.6 35B A3B (Alibaba Cloud)"
 
 
 class TestGetModelCharacteristics:
@@ -292,6 +361,13 @@ class TestGetModelCharacteristics:
         assert chars["cost_tier"] == "free"
         assert chars["context_window"] == 128000
 
+    def test_alibaba_characteristics(self):
+        """Alibaba Cloud model has correct characteristics."""
+        chars = get_model_characteristics("qwen3.6-35b-a3b")
+        assert chars["speed"] == "medium"
+        assert chars["cost_tier"] == "medium"
+        assert chars["context_window"] == 128000
+
 
 class TestListFunctions:
     """Test listing functions."""
@@ -302,6 +378,7 @@ class TestListFunctions:
         assert "openai" in models
         assert "google" in models
         assert "anthropic" in models
+        assert "alibaba" in models
         assert "lmstudio" in models
         assert isinstance(models["openai"], list)
         assert len(models["openai"]) > 0
@@ -313,6 +390,8 @@ class TestListFunctions:
         assert "gpt-5.2-instant" in aliases  # Backward compatibility
         assert "gemini" in aliases
         assert "claude" in aliases
+        assert "alibaba" in aliases
+        assert "qwen3.6" in aliases
         assert "lmstudio" in aliases
         assert isinstance(aliases, dict)
 

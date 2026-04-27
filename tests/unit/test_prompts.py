@@ -21,6 +21,16 @@ def test_testing_focus_prompt_exists() -> None:
     assert "testing and qa specialist" in prompt.lower()
 
 
+def test_testing_focus_prompt_warns_about_mock_trap() -> None:
+    """Testing focus explicitly rejects mock-heavy pipeline false confidence."""
+    prompt = get_review_system_prompt("testing").lower()
+    assert "the mock trap" in prompt
+    assert "could this suite pass if the real pipeline" in prompt
+    assert "wiring mirage" in prompt
+    assert "credential mirage" in prompt
+    assert "reject it and ask for real-service coverage" in prompt
+
+
 def test_security_focus_prompt_includes_security_review_categories() -> None:
     """Security focus includes key application security review areas."""
     prompt = get_review_system_prompt("security").lower()

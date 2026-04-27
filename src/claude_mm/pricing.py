@@ -37,6 +37,9 @@ DEFAULT_PRICING = {
         "claude-sonnet-4-5-20250929": {"input": 3.00, "output": 15.00},
         "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
     },
+    "alibaba": {
+        "qwen3.6-35b-a3b": {"input": 0.50, "output": 2.00, "estimated": True},
+    },
     "_metadata": {
         "last_updated": datetime.now().isoformat(),
         "version": "1.0.0",
@@ -135,6 +138,10 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
         for fallback in ["claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5-20251101"]:
             if fallback in provider_pricing:
                 return provider_pricing[fallback]
+    elif provider == "alibaba":
+        for fallback in ["qwen3.6-35b-a3b"]:
+            if fallback in provider_pricing:
+                return provider_pricing[fallback]
 
     # Fall back to embedded defaults when user pricing file is stale
     if provider == "openai":
@@ -151,6 +158,10 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
                 return default_provider_pricing[fallback]
     elif provider == "anthropic":
         for fallback in ["claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5-20251101"]:
+            if fallback in default_provider_pricing:
+                return default_provider_pricing[fallback]
+    elif provider == "alibaba":
+        for fallback in ["qwen3.6-35b-a3b"]:
             if fallback in default_provider_pricing:
                 return default_provider_pricing[fallback]
 

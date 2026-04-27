@@ -1,6 +1,6 @@
 # AI MM - Multi-Model Code Review Tool
 
-Get code reviews from GPT, Gemini, Claude, and local LLMs (Ollama) - in parallel or individually.
+Get code reviews from GPT, Gemini, Claude, Alibaba Cloud Qwen, and local LLMs - in parallel or individually.
 
 ## Why AI MM?
 
@@ -37,16 +37,20 @@ ai configure  # Alias for interactive TUI
 **Supported providers:**
 - **OpenAI** - GPT-5.4 and GPT-5.2 models
 - **Google** - Gemini 3 Pro
-- **Anthropic** - Claude Opus 4.5
+- **Anthropic** - Claude Opus 4.6
+- **Alibaba Cloud DashScope** - Qwen 3.6 cloud (set `DASHSCOPE_API_KEY`)
 - **Ollama** - Local LLMs (set `OLLAMA_BASE_URL`)
+- **LM Studio** - Local OpenAI-compatible Qwen 3.6 (set `LMSTUDIO_BASE_URL`)
 
 Keys stored at `~/.config/ai-mm/env` with secure permissions.
 Review defaults are stored in `~/.config/ai/config.yaml`.
+Alibaba Cloud uses DashScope's OpenAI-compatible default endpoint. Override with
+`DASHSCOPE_BASE_URL` only if your account requires a custom endpoint.
 
 ## Usage
 
 ```bash
-# Parallel multimode review (GPT + Gemini + Claude + local Ollama)
+# Parallel multimode review (GPT + Gemini + Claude + local Ollama + LM Studio)
 git diff | ai review --model mm
 
 # Fast models only (cheaper)
@@ -58,6 +62,10 @@ git diff | ai review --model gemini --focus performance
 
 # Local LLM (free, offline)
 git diff | ai review --model ollama
+
+# Qwen 3.6: uses Alibaba Cloud if DASHSCOPE_API_KEY is configured,
+# otherwise falls back to local LM Studio
+git diff | ai review --model qwen3.6
 
 # Architecture review
 git diff | ai review --model mm --focus architecture
@@ -94,7 +102,7 @@ Use `--focus` to bias what the models prioritize:
 
 ## Local LLM Support
 
-Use Ollama for free, private code reviews:
+Use Ollama or LM Studio for free, private code reviews:
 
 ```bash
 # Install Ollama
@@ -107,10 +115,17 @@ ai configure
 
 # Review with local model
 git diff | ai review --model ollama
+
+# Review with local Qwen 3.6 via LM Studio
+git diff | ai review --model lmstudio
 ```
 
 No API key needed, but `OLLAMA_BASE_URL` must be configured. Works offline.
 Your code never leaves your machine.
+
+For Qwen 3.6, `ai review --model qwen3.6` selects Alibaba Cloud DashScope when
+`DASHSCOPE_API_KEY` is configured. If DashScope is not configured, it uses the
+local LM Studio model `qwen/qwen3.6-35b-a3b`.
 
 ## Development
 
@@ -134,7 +149,7 @@ ai-mm/
 │   ├── env.py              # API key management
 │   ├── prompts.py          # System prompts
 │   ├── models.py           # Model registry
-│   └── providers/          # OpenAI, Google, Anthropic, Ollama
+│   └── providers/          # OpenAI, Google, Anthropic, Alibaba, Ollama, LM Studio
 ├── bin/ai                  # CLI entry point
 ├── tests/                  # Unit and integration tests
 └── commands/               # ./run commands
@@ -153,7 +168,9 @@ cat > ~/.config/ai-mm/env <<'EOF'
 export OPENAI_API_KEY="sk-..."
 export GOOGLE_AI_API_KEY="..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+export DASHSCOPE_API_KEY="..."
 export OLLAMA_BASE_URL="http://localhost:11434"
+export LMSTUDIO_BASE_URL="http://127.0.0.1:1234/v1"
 EOF
 chmod 600 ~/.config/ai-mm/env
 

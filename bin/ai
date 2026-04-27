@@ -12,7 +12,7 @@ Usage:
     ai stabilize "goal" [--rounds N] [--mode MODE]
     ai cache stats|clear [--older-than HOURS]
     ai usage [--today|--week|--month] [--export FILE]
-    ai check-models [--gpt MODEL] [--claude MODEL] [--gemini MODEL] [--local MODEL] [--lmstudio MODEL]
+    ai check-models [--gpt MODEL] [--claude MODEL] [--gemini MODEL] [--alibaba MODEL] [--local MODEL] [--lmstudio MODEL]
 
 Examples:
     ai plan "Build user authentication"
@@ -62,6 +62,7 @@ from claude_mm.cache import clear_cache, get_cache_stats  # noqa: E402
 from claude_mm.config import load_config  # noqa: E402
 from claude_mm.config_tui import run_config_tui  # noqa: E402
 from claude_mm.models import MODEL_GROUPS  # noqa: E402
+from claude_mm.providers.alibaba import AlibabaProvider  # noqa: E402
 from claude_mm.providers.anthropic import AnthropicProvider  # noqa: E402
 from claude_mm.providers.google import GoogleProvider  # noqa: E402
 from claude_mm.providers.lmstudio import LMStudioProvider  # noqa: E402
@@ -402,6 +403,7 @@ def cmd_check_models(args):
         ("gpt", args.gpt, OpenAIProvider),
         ("claude", args.claude, AnthropicProvider),
         ("gemini", args.gemini, GoogleProvider),
+        ("alibaba", args.alibaba, AlibabaProvider),
         ("local", args.local, OllamaProvider),
         ("lmstudio", args.lmstudio, LMStudioProvider),
     ]
@@ -582,7 +584,7 @@ def main():
     # Model access check command
     check_parser = subparsers.add_parser(
         "check-models",
-        help="Check access to configured Claude and Gemini models",
+        help="Check access to configured cloud and local models",
     )
     check_parser.add_argument(
         "--gpt",
@@ -598,6 +600,11 @@ def main():
         "--gemini",
         default="gemini-3.1-pro-preview",
         help="Gemini model to test (default: gemini-3.1-pro-preview)",
+    )
+    check_parser.add_argument(
+        "--alibaba",
+        default="qwen3.6-35b-a3b",
+        help="Alibaba DashScope model to test (default: qwen3.6-35b-a3b)",
     )
     check_parser.add_argument(
         "--local",

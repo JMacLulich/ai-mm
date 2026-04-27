@@ -2,9 +2,10 @@
 LLM Provider abstraction layer.
 
 This module provides a uniform interface for interacting with different LLM providers
-(OpenAI, Google, Anthropic, Ollama) with support for both sync and async operations.
+(OpenAI, Google, Anthropic, Alibaba, Ollama) with support for sync and async operations.
 """
 
+from .alibaba import AlibabaProvider
 from .anthropic import AnthropicProvider
 from .base import Provider, ProviderError, ProviderResponse
 from .google import GoogleProvider
@@ -16,6 +17,7 @@ __all__ = [
     "Provider",
     "ProviderResponse",
     "ProviderError",
+    "AlibabaProvider",
     "OpenAIProvider",
     "GoogleProvider",
     "AnthropicProvider",
@@ -29,7 +31,7 @@ def get_provider(name: str, **kwargs) -> Provider:
     Factory function to get a provider instance.
 
     Args:
-        name: Provider name ('openai', 'google', 'anthropic', 'ollama')
+        name: Provider name ('openai', 'google', 'anthropic', 'alibaba', 'ollama')
         **kwargs: Provider-specific configuration
 
     Returns:
@@ -40,6 +42,7 @@ def get_provider(name: str, **kwargs) -> Provider:
     """
     providers = {
         "openai": OpenAIProvider,
+        "alibaba": AlibabaProvider,
         "google": GoogleProvider,
         "anthropic": AnthropicProvider,
         "ollama": OllamaProvider,

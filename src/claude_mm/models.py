@@ -8,6 +8,7 @@ This is the single source of truth for:
 - Model characteristics (speed, cost tier, etc.)
 """
 
+import os
 from typing import Any, Dict, Optional, Tuple
 
 # ============================================================================
@@ -63,6 +64,17 @@ CLAUDE_ALIASES = {
     "haiku": "claude-haiku-4-5-20251001",
 }
 
+# Alibaba Cloud DashScope Models (OpenAI-compatible cloud endpoint)
+ALIBABA_MODELS = {
+    "qwen3.6-35b-a3b": "qwen3.6-35b-a3b",
+}
+
+ALIBABA_ALIASES = {
+    "alibaba": "qwen3.6-35b-a3b",
+    "dashscope": "qwen3.6-35b-a3b",
+    "qwen3.6-cloud": "qwen3.6-35b-a3b",
+}
+
 # Ollama Models (local)
 OLLAMA_MODELS = {
     "qwen2.5:14b-instruct": "qwen2.5:14b-instruct",  # Good balance
@@ -84,8 +96,12 @@ LMSTUDIO_MODELS = {
 
 LMSTUDIO_ALIASES = {
     "lmstudio": "qwen/qwen3.6-35b-a3b",
-    "qwen3.6": "qwen/qwen3.6-35b-a3b",
     "qwen3.5": "qwen3.5:27b",
+}
+
+# Dynamic aliases choose cloud Qwen if DashScope is configured, otherwise local LM Studio.
+QWEN_DYNAMIC_ALIASES = {
+    "qwen3.6": "qwen3.6-35b-a3b",
 }
 
 # Model groups for multi-model reviews
@@ -105,6 +121,22 @@ MODEL_GROUPS = {
         "claude-haiku-4-5-20251001",
     ],  # Fast models
 }
+
+
+def _has_alibaba_config() -> bool:
+    return bool(os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIBABA_API_KEY"))
+
+
+def _has_lmstudio_config() -> bool:
+    return bool(os.getenv("LMSTUDIO_BASE_URL") or os.getenv("LMSTUDIO_API_KEY"))
+
+
+def _resolve_qwen36_alias() -> Tuple[str, str]:
+    if _has_alibaba_config():
+        return "alibaba", ALIBABA_MODELS["qwen3.6-35b-a3b"]
+    if _has_lmstudio_config():
+        return "lmstudio", LMSTUDIO_MODELS["qwen/qwen3.6-35b-a3b"]
+    return "lmstudio", LMSTUDIO_MODELS["qwen/qwen3.6-35b-a3b"]
 
 
 # ============================================================================
@@ -133,6 +165,15 @@ def get_provider_for_model(model: str) -> Optional[str]:
     # Check Claude
     if model in CLAUDE_MODELS or model in CLAUDE_ALIASES:
         return "anthropic"
+
+    # Check Alibaba Cloud DashScope
+    if model in ALIBABA_MODELS or model in ALIBABA_ALIASES:
+        return "alibaba"
+
+    # Check Qwen aliases that can run in cloud or locally.
+    if model in QWEN_DYNAMIC_ALIASES:
+        provider, _api_model = _resolve_qwen36_alias()
+        return provider
 
     # Check Ollama
     if model in OLLAMA_MODELS or model in OLLAMA_ALIASES:
@@ -186,6 +227,16 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
     if model in CLAUDE_ALIASES:
         return "anthropic", CLAUDE_MODELS[CLAUDE_ALIASES[model]]
 
+    # Try Alibaba Cloud DashScope
+    if model in ALIBABA_MODELS:
+        return "alibaba", ALIBABA_MODELS[model]
+    if model in ALIBABA_ALIASES:
+        return "alibaba", ALIBABA_MODELS[ALIBABA_ALIASES[model]]
+
+    # Try dynamic Qwen aliases after explicit cloud aliases.
+    if model in QWEN_DYNAMIC_ALIASES:
+        return _resolve_qwen36_alias()
+
     # Try Ollama
     if model in OLLAMA_MODELS:
         return "ollama", OLLAMA_MODELS[model]
@@ -231,6 +282,8 @@ def get_model_display_name(api_model: str) -> str:
         "claude-opus-4-5-20251101": "Claude Opus 4.5",
         "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
         "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+        # Alibaba Cloud DashScope
+        "qwen3.6-35b-a3b": "Qwen 3.6 35B A3B (Alibaba Cloud)",
         # Ollama
         "qwen2.5:14b-instruct": "Qwen 2.5 14B (Local)",
         "qwen2.5:7b-instruct": "Qwen 2.5 7B (Local)",
@@ -354,6 +407,13 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "context_window": 200000,
             "description": "Fastest model with near-frontier intelligence",
         },
+        # Alibaba Cloud DashScope
+        "qwen3.6-35b-a3b": {
+            "speed": "medium",
+            "cost_tier": "medium",
+            "context_window": 128000,
+            "description": "Cloud Qwen 3.6 35B A3B via Alibaba Cloud DashScope",
+        },
         # Ollama
         "qwen2.5:14b-instruct": {
             "speed": "medium",
@@ -410,6 +470,7 @@ def list_all_models() -> Dict[str, list]:
         "openai": list(OPENAI_MODELS.keys()),
         "google": list(GEMINI_MODELS.keys()),
         "anthropic": list(CLAUDE_MODELS.keys()),
+        "alibaba": list(ALIBABA_MODELS.keys()),
         "ollama": list(OLLAMA_MODELS.keys()),
         "lmstudio": list(LMSTUDIO_MODELS.keys()),
     }
@@ -426,6 +487,8 @@ def list_all_aliases() -> Dict[str, str]:
     all_aliases.update(OPENAI_ALIASES)
     all_aliases.update(GEMINI_ALIASES)
     all_aliases.update(CLAUDE_ALIASES)
+    all_aliases.update(ALIBABA_ALIASES)
+    all_aliases.update(QWEN_DYNAMIC_ALIASES)
     all_aliases.update(OLLAMA_ALIASES)
     all_aliases.update(LMSTUDIO_ALIASES)
     return all_aliases

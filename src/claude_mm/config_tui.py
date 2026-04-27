@@ -21,6 +21,7 @@ PROVIDERS = [
     ("openai", "OPENAI_API_KEY", "GPT-5.4 (reviews)", "sk-"),
     ("google", "GOOGLE_AI_API_KEY", "Gemini 3.1 Pro (reviews)", None),
     ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
+    ("alibaba", "DASHSCOPE_API_KEY", "Alibaba Cloud DashScope (Qwen 3.6 cloud)", None),
     ("ollama", "OLLAMA_BASE_URL", "Local LLM endpoint URL", "http(s)://..."),
     ("lmstudio", "LMSTUDIO_BASE_URL", "LM Studio OpenAI-compatible endpoint", "http(s)://..."),
 ]
@@ -73,6 +74,20 @@ def _test_api_key(provider: str, value: str) -> tuple[bool, str]:
                 model="claude-opus-4-6",
                 max_tokens=5,
                 messages=[{"role": "user", "content": "Hi"}],
+            )
+            return True, "Valid"
+
+        elif provider == "alibaba":
+            from openai import OpenAI
+
+            from claude_mm.providers.alibaba import DEFAULT_DASHSCOPE_BASE_URL
+
+            base_url = os.getenv("DASHSCOPE_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
+            client = OpenAI(api_key=value, base_url=base_url, timeout=20.0)
+            client.chat.completions.create(
+                model="qwen3.6-35b-a3b",
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5,
             )
             return True, "Valid"
 
