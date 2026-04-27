@@ -229,14 +229,14 @@ def _build_fallback_candidates(
     if overload_failures >= 2 and get_provider_for_model("lmstudio") not in models_providers:
         logger.info(
             "Detected repeated provider overloads (503/529). "
-            "Falling back to local LM Studio (qwen3.5:27b)."
+            "Falling back to local LM Studio (qwen/qwen3.6-35b-a3b)."
         )
         candidates.append("lmstudio")
 
     if external_failure_count > 0:
         # "ollama" and "lmstudio" are valid model aliases recognized by normalize_model_name():
         #   "ollama"   → provider=ollama,   model_id=qwen2.5:14b-instruct
-        #   "lmstudio" → provider=lmstudio, model_id=qwen3.5:27b
+        #   "lmstudio" → provider=lmstudio, model_id=qwen/qwen3.6-35b-a3b
         for local_model in ("ollama", "lmstudio"):
             # Skip if this provider is already in the original model list (already tried)
             # or if already failed/queued

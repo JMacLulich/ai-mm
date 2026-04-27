@@ -72,7 +72,7 @@ class TestModelRegistries:
     def test_lmstudio_models_exist(self):
         """LM Studio models registry is not empty."""
         assert len(LMSTUDIO_MODELS) > 0
-        assert "qwen3.5:27b" in LMSTUDIO_MODELS
+        assert "qwen/qwen3.6-35b-a3b" in LMSTUDIO_MODELS
 
     def test_lmstudio_aliases_exist(self):
         """LM Studio aliases are properly defined."""
@@ -118,7 +118,7 @@ class TestGetProviderForModel:
 
     def test_lmstudio_models(self):
         """LM Studio models resolve to 'lmstudio' provider."""
-        assert get_provider_for_model("qwen3.5:27b") == "lmstudio"
+        assert get_provider_for_model("qwen/qwen3.6-35b-a3b") == "lmstudio"
 
     def test_lmstudio_aliases(self):
         """LM Studio aliases resolve to 'lmstudio' provider."""
@@ -201,7 +201,7 @@ class TestNormalizeModelName:
         """LM Studio alias resolves correctly."""
         provider, model = normalize_model_name("lmstudio")
         assert provider == "lmstudio"
-        assert model == "qwen3.5:27b"
+        assert model == "qwen/qwen3.6-35b-a3b"
 
 
 class TestGetModelDisplayName:
@@ -216,7 +216,7 @@ class TestGetModelDisplayName:
 
     def test_gemini_display_names(self):
         """Gemini models have proper display names."""
-        assert get_model_display_name("gemini-3.1-pro-preview") == "Gemini 3.1 Pro"
+        assert get_model_display_name("gemini-3.1-pro-preview") == "Gemini 3.1 Pro Preview"
 
     def test_claude_display_names(self):
         """Claude models have proper display names."""
@@ -228,7 +228,7 @@ class TestGetModelDisplayName:
 
     def test_lmstudio_display_name(self):
         """LM Studio model has proper display name."""
-        assert get_model_display_name("qwen3.5:27b") == "Qwen 3.5 27B (LM Studio)"
+        assert get_model_display_name("qwen/qwen3.6-35b-a3b") == "Qwen 3.6 35B A3B (LM Studio)"
 
 
 class TestGetModelCharacteristics:
@@ -287,7 +287,7 @@ class TestGetModelCharacteristics:
 
     def test_lmstudio_characteristics(self):
         """LM Studio model has correct characteristics."""
-        chars = get_model_characteristics("qwen3.5:27b")
+        chars = get_model_characteristics("qwen/qwen3.6-35b-a3b")
         assert chars["speed"] == "medium"
         assert chars["cost_tier"] == "free"
         assert chars["context_window"] == 128000

@@ -35,7 +35,7 @@ OPENAI_ALIASES = {
 
 # Google Gemini Models
 GEMINI_MODELS = {
-    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",  # Latest Pro (preview)
+    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",  # Latest Pro (preview API ID)
     "gemini-3-pro-preview": "gemini-3-pro-preview",  # Latest Pro - biggest model
     "gemini-2.5-pro": "gemini-2.5-pro",  # Stable Pro
     "gemini-3-flash-preview": "gemini-3-flash-preview",  # Fast, cheap
@@ -43,8 +43,8 @@ GEMINI_MODELS = {
 }
 
 GEMINI_ALIASES = {
-    "gemini": "gemini-3.1-pro-preview",  # Default to latest Pro
-    "gemini-pro": "gemini-3.1-pro-preview",  # Alias to latest Pro
+    "gemini": "gemini-3.1-pro-preview",  # Default to latest available 3.1 Pro
+    "gemini-pro": "gemini-3.1-pro-preview",  # Alias to latest available 3.1 Pro
     "gemini-flash": "gemini-3-flash-preview",
 }
 
@@ -78,11 +78,13 @@ OLLAMA_ALIASES = {
 
 # LM Studio Models (local, OpenAI-compatible endpoint)
 LMSTUDIO_MODELS = {
+    "qwen/qwen3.6-35b-a3b": "qwen/qwen3.6-35b-a3b",
     "qwen3.5:27b": "qwen3.5:27b",
 }
 
 LMSTUDIO_ALIASES = {
-    "lmstudio": "qwen3.5:27b",
+    "lmstudio": "qwen/qwen3.6-35b-a3b",
+    "qwen3.6": "qwen/qwen3.6-35b-a3b",
     "qwen3.5": "qwen3.5:27b",
 }
 
@@ -218,7 +220,7 @@ def get_model_display_name(api_model: str) -> str:
         "gpt-4o": "GPT-4o",
         "gpt-4": "GPT-4",
         # Gemini
-        "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+        "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
         "gemini-3-pro-preview": "Gemini 3 Pro",
         "gemini-2.5-pro": "Gemini 2.5 Pro",
         "gemini-3-flash-preview": "Gemini 3 Flash",
@@ -234,6 +236,7 @@ def get_model_display_name(api_model: str) -> str:
         "qwen2.5:7b-instruct": "Qwen 2.5 7B (Local)",
         "llama3:latest": "Llama 3 (Local)",
         # LM Studio
+        "qwen/qwen3.6-35b-a3b": "Qwen 3.6 35B A3B (LM Studio)",
         "qwen3.5:27b": "Qwen 3.5 27B (LM Studio)",
     }
 
@@ -294,7 +297,7 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "speed": "medium",
             "cost_tier": "medium",
             "context_window": 1000000,
-            "description": "Latest Gemini 3.1 Pro (preview)",
+            "description": "Latest Gemini 3.1 Pro available via Google API",
         },
         "gemini-3-pro-preview": {
             "speed": "medium",
@@ -371,6 +374,12 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "description": "Local Llama 3",
         },
         # LM Studio
+        "qwen/qwen3.6-35b-a3b": {
+            "speed": "medium",
+            "cost_tier": "free",
+            "context_window": 128000,
+            "description": "Local Qwen 3.6 35B A3B via LM Studio",
+        },
         "qwen3.5:27b": {
             "speed": "medium",
             "cost_tier": "free",

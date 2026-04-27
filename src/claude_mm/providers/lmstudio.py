@@ -43,7 +43,7 @@ class LMStudioProvider(Provider):
     def complete(
         self,
         prompt: str,
-        model: str = "qwen3.5:27b",
+        model: str = "qwen/qwen3.6-35b-a3b",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -103,7 +103,7 @@ class LMStudioProvider(Provider):
     async def complete_async(
         self,
         prompt: str,
-        model: str = "qwen3.5:27b",
+        model: str = "qwen/qwen3.6-35b-a3b",
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -121,7 +121,7 @@ class LMStudioProvider(Provider):
 
     def validate_key(self) -> tuple[bool, str]:
         try:
-            self.complete(prompt="Reply with OK", model="qwen3.5:27b", max_tokens=8, temperature=0)
+            self.complete(prompt="Reply with OK", model="qwen/qwen3.6-35b-a3b", temperature=0)
             return True, "Running"
         except Exception as e:
             return False, str(e)

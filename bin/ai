@@ -606,8 +606,8 @@ def main():
     )
     check_parser.add_argument(
         "--lmstudio",
-        default="qwen3.5:27b",
-        help="LM Studio model to test (default: qwen3.5:27b)",
+        default="qwen/qwen3.6-35b-a3b",
+        help="LM Studio model to test (default: qwen/qwen3.6-35b-a3b)",
     )
     check_parser.add_argument(
         "--timeout",

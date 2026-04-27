@@ -78,10 +78,10 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
             if model in {"gpt-5.4", "gemini-3.1-pro-preview", "claude-opus-4-6"}:
                 raise Exception("503 Service Unavailable")
 
-            if model == "lmstudio" or model == "qwen3.5:27b":
+            if model == "lmstudio" or model == "qwen/qwen3.6-35b-a3b":
                 return ProviderResponse(
                     text="ok from lmstudio",
-                    model="qwen3.5:27b",
+                    model="qwen/qwen3.6-35b-a3b",
                     input_tokens=1,
                     output_tokens=1,
                     cost=Decimal("0"),
@@ -124,10 +124,10 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
             }:
                 raise Exception(f"{model} unavailable")
 
-            if model == "qwen3.5:27b":
+            if model == "qwen/qwen3.6-35b-a3b":
                 return ProviderResponse(
                     text="ok from lmstudio",
-                    model="qwen3.5:27b",
+                    model="qwen/qwen3.6-35b-a3b",
                     input_tokens=1,
                     output_tokens=1,
                     cost=Decimal("0"),
