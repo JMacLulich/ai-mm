@@ -51,10 +51,10 @@ When the user says "push", follow this workflow in order:
 
 **When modifying the mm-review skill:**
 
-1. **Edit locally**: Make changes to `claude/skills/mm-review/skill.md` in this repo
+1. **Edit locally**: Make changes to `claude/skills/mm-review/SKILL.md` in this repo
 2. **Test installation**: Run `./run install` to copy the skill to `~/.claude/skills/mm-review/`
 3. **Test the skill**: Use the skill in a Claude session to verify changes
-4. **Commit changes**: Only commit changes to the local `claude/skills/mm-review/skill.md`
+4. **Commit changes**: Only commit changes to the local `claude/skills/mm-review/SKILL.md`
 
 **IMPORTANT: NEVER manually copy files to `~/.claude/` - always use `./run install` for testing.**
 
