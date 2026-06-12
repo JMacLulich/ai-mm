@@ -194,12 +194,17 @@ def cmd_review(args):
                     print(f"  - {model_name}: {error}", file=sys.stderr)
 
         else:
-            # Single model review
+            # Single model review — forward BOTH timeout knobs; without them the
+            # library silently falls back to its 120s local default and
+            # --local-model-timeout/--per-model-timeout are ignored (bug found
+            # 2026-06-13 after repeated 120s timeouts on large lmstudio reviews).
             result = review(
                 prompt,
                 model=models[0] if models else None,
                 focus=args.focus,
                 use_cache=not args.no_cache,
+                per_model_timeout=effective_timeout,
+                local_model_timeout=local_timeout,
             )
 
             print(result.text, file=sys.stdout)
