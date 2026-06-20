@@ -129,21 +129,37 @@ def cmd_review(args):
                 file=sys.stderr,
             )
         print(file=sys.stderr)
+    elif args.model in MODEL_GROUPS:
+        # Any other named group (e.g. "local" → qwen36 + gemma4) expands generically.
+        models = MODEL_GROUPS[args.model]
+        print(
+            f"🔍 Running '{args.model}' group review: {', '.join(models)} in parallel...",
+            file=sys.stderr,
+        )
+        if args.focus and args.focus != "general":
+            print(f"📊 Focus: {args.focus}", file=sys.stderr)
+        print(file=sys.stderr)
     else:
         models = [args.model] if args.model else None
 
     # Run review
     try:
         effective_timeout = args.per_model_timeout
-        if models and len(models) > 1 and effective_timeout < 0:
+        if effective_timeout is not None and effective_timeout < 0:
+            # -1 is the "unset" sentinel; normalize for BOTH single- and
+            # multi-model paths (single-model previously forwarded -1 straight
+            # into review(), which rejects it: "per_model_timeout must be >= 0").
             effective_timeout = 60.0
-            print(
-                "⏱️  Using default per-model timeout: 60.0s "
-                "(set --per-model-timeout 0 to disable)",
-                file=sys.stderr,
-            )
+            if models and len(models) > 1:
+                print(
+                    "⏱️  Using default per-model timeout: 60.0s "
+                    "(set --per-model-timeout 0 to disable)",
+                    file=sys.stderr,
+                )
 
         local_timeout = getattr(args, "local_model_timeout", None)
+        if local_timeout is not None and local_timeout < 0:
+            local_timeout = None  # let the library use its configured default
 
         if models and len(models) > 1:
             import threading
@@ -453,6 +469,9 @@ def main():
         format="%(message)s",
         stream=sys.stderr,
     )
+    # Surface our own package's INFO logs (profile selection + served-model audit)
+    # on stderr while keeping third-party libraries quiet at WARNING.
+    logging.getLogger("claude_mm").setLevel(logging.INFO)
 
     # Load config (available for future extension)
     _ = load_config()

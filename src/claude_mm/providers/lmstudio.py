@@ -89,6 +89,12 @@ class LMStudioProvider(Provider):
             input_tokens = response.usage.prompt_tokens if response.usage else 0
             output_tokens = response.usage.completion_tokens if response.usage else 0
 
+            # Audit signal: the model LM Studio actually served, echoed back in the
+            # OpenAI-compatible response. We keep `model` as the requested id (so
+            # caching/logging stay stable) but stash the served id in metadata so
+            # the review seam can prove the requested profile is what ran.
+            served_model = getattr(response, "model", None) or model
+
             return ProviderResponse(
                 text=text,
                 model=model,
@@ -96,6 +102,11 @@ class LMStudioProvider(Provider):
                 output_tokens=output_tokens,
                 cost=Decimal("0"),
                 cached=False,
+                metadata={
+                    "provider": "lmstudio",
+                    "requested_model": model,
+                    "served_model": served_model,
+                },
             )
         except Exception as e:
             raise ProviderError(f"LM Studio API error: {e}")

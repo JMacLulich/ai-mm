@@ -33,7 +33,11 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from claude_mm.cache import cache_response, get_cached_response
 from claude_mm.config import load_config
-from claude_mm.models import get_provider_for_model, normalize_model_name
+from claude_mm.models import (
+    get_model_display_name,
+    get_provider_for_model,
+    normalize_model_name,
+)
 from claude_mm.planning import DEFAULT_CONFIDENCE_THRESHOLD, generate_plan_output
 from claude_mm.prompts import get_review_system_prompt
 from claude_mm.providers import get_provider
@@ -282,6 +286,43 @@ def _is_local_model(model_name: str) -> bool:
         return False
 
 
+def _log_profile_selection(alias: str, provider_name: str, model_id: str) -> None:
+    """Emit a visible audit line naming the profile/model a review is about to use.
+
+    This is the answer to "which profile am I actually running?" — logged BEFORE
+    the call so a hang/timeout is still attributable. INFO on the ``claude_mm``
+    logger, which the CLI surfaces on stderr.
+    """
+    logger.info(
+        "🧭 profile → alias=%s provider=%s model=%s (%s)",
+        alias,
+        provider_name,
+        model_id,
+        get_model_display_name(model_id),
+    )
+
+
+def _audit_served_model(requested_model: str, response: "ProviderResponse") -> None:
+    """Compare the model we asked for against the one the server actually served.
+
+    Local providers (LM Studio) echo the served model id back in the response;
+    we stash it in ``metadata['served_model']``. If it disagrees with the
+    requested id, the profile silently fell back to whatever was loaded — exactly
+    the failure mode this audit exists to catch. WARNING on mismatch, INFO on OK.
+    """
+    served = (response.metadata or {}).get("served_model")
+    if not served:
+        return
+    if served != requested_model:
+        logger.warning(
+            "⚠️  profile audit MISMATCH: requested=%s but server served=%s",
+            requested_model,
+            served,
+        )
+    else:
+        logger.info("✅ profile audit OK: served=%s", served)
+
+
 def _validate_review_args(
     model: Optional[str],
     models: Optional[List[str]],
@@ -463,8 +504,10 @@ def _review_single(
                 cached=True,
             )
 
+    _log_profile_selection(model, provider_name, model_id)
     provider = get_provider(provider_name)
     response = provider.complete(prompt, model_id, system_prompt=system_prompt)
+    _audit_served_model(model_id, response)
 
     # Non-critical side effects: log failure should not prevent returning the result
     try:
@@ -1047,8 +1090,10 @@ async def _review_single_async(
                 cached=True,
             )
 
+    _log_profile_selection(model, provider_name, model_id)
     provider = get_provider(provider_name)
     response = await provider.complete_async(prompt, model_id, system_prompt=system_prompt)
+    _audit_served_model(model_id, response)
 
     # Non-critical side effect: log failure should not prevent returning the result
     try:

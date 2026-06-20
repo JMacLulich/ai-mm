@@ -91,11 +91,15 @@ OLLAMA_ALIASES = {
 # LM Studio Models (local, OpenAI-compatible endpoint)
 LMSTUDIO_MODELS = {
     "qwen/qwen3.6-35b-a3b": "qwen/qwen3.6-35b-a3b",
+    "google/gemma-4-26b-a4b": "google/gemma-4-26b-a4b",
     "qwen3.5:27b": "qwen3.5:27b",
 }
 
 LMSTUDIO_ALIASES = {
     "lmstudio": "qwen/qwen3.6-35b-a3b",
+    "qwen36-local": "qwen/qwen3.6-35b-a3b",
+    "gemma4": "google/gemma-4-26b-a4b",
+    "gemma": "google/gemma-4-26b-a4b",
     "qwen3.5": "qwen3.5:27b",
 }
 
@@ -115,6 +119,7 @@ MODEL_GROUPS = {
     ],  # Multimode includes both local providers
     "all": ["gpt-5.4", "gemini", "claude-opus-4-6", "ollama", "lmstudio"],
     # All providers
+    "local": ["lmstudio", "gemma4"],  # Local-only LM Studio profiles: qwen36 + gemma4
     "fast": [
         "gpt-5.2-chat-latest",
         "gemini-3-flash-preview",
@@ -290,6 +295,7 @@ def get_model_display_name(api_model: str) -> str:
         "llama3:latest": "Llama 3 (Local)",
         # LM Studio
         "qwen/qwen3.6-35b-a3b": "Qwen 3.6 35B A3B (LM Studio)",
+        "google/gemma-4-26b-a4b": "Gemma 4 26B A4B (LM Studio)",
         "qwen3.5:27b": "Qwen 3.5 27B (LM Studio)",
     }
 
@@ -439,6 +445,12 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "cost_tier": "free",
             "context_window": 128000,
             "description": "Local Qwen 3.6 35B A3B via LM Studio",
+        },
+        "google/gemma-4-26b-a4b": {
+            "speed": "medium",
+            "cost_tier": "free",
+            "context_window": 128000,
+            "description": "Local Gemma 4 26B A4B via LM Studio",
         },
         "qwen3.5:27b": {
             "speed": "medium",
