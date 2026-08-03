@@ -21,6 +21,14 @@ def test_testing_focus_prompt_exists() -> None:
     assert "testing and qa specialist" in prompt.lower()
 
 
+def test_verification_focus_is_evidence_first_and_adversarial() -> None:
+    prompt = get_review_system_prompt("verification").lower()
+    assert "adversarial verification" in prompt
+    assert "attempt to falsify" in prompt
+    assert "verified, disproved, unverified" in prompt
+    assert "untrusted evidence" in prompt
+
+
 def test_testing_focus_prompt_warns_about_mock_trap() -> None:
     """Testing focus explicitly rejects mock-heavy pipeline false confidence."""
     prompt = get_review_system_prompt("testing").lower()

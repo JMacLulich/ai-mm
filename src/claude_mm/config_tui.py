@@ -19,7 +19,7 @@ from claude_mm.env import CONFIG_DIR, ENV_FILE, load_env_file, save_env_file
 
 PROVIDERS = [
     ("openai", "OPENAI_API_KEY", "GPT-5.4 (reviews)", "sk-"),
-    ("google", "GOOGLE_AI_API_KEY", "Gemini 3.1 Pro (reviews)", None),
+    ("deepseek", "DEEPSEEK_API_KEY", "DeepSeek V4 Pro (max-thinking reviews)", None),
     ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
     ("alibaba", "DASHSCOPE_API_KEY", "Alibaba Cloud DashScope (Qwen 3.6 cloud)", None),
     ("ollama", "OLLAMA_BASE_URL", "Local LLM endpoint URL", "http(s)://..."),
@@ -56,13 +56,14 @@ def _test_api_key(provider: str, value: str) -> tuple[bool, str]:
             )
             return True, "Valid"
 
-        elif provider == "google":
-            from google import genai
+        elif provider == "deepseek":
+            from claude_mm.providers.deepseek import DeepSeekProvider
 
-            client = genai.Client(api_key=value)
-            client.models.generate_content(
-                model="gemini-3.1-pro-preview",
-                contents="Hi",
+            DeepSeekProvider(api_key=value).complete(
+                prompt="Reply with OK",
+                model="deepseek-v4-flash",
+                max_tokens=5,
+                reasoning_effort="none",
             )
             return True, "Valid"
 

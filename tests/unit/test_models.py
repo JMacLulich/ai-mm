@@ -12,6 +12,8 @@ from claude_mm.models import (
     ALIBABA_MODELS,
     CLAUDE_ALIASES,
     CLAUDE_MODELS,
+    DEEPSEEK_ALIASES,
+    DEEPSEEK_MODELS,
     GEMINI_ALIASES,
     GEMINI_MODELS,
     LMSTUDIO_ALIASES,
@@ -38,12 +40,14 @@ class TestModelRegistries:
         assert "gpt-5.2-chat-latest" in OPENAI_MODELS
         assert "gpt-5.2" in OPENAI_MODELS
         assert "gpt-5.2-pro" in OPENAI_MODELS
+        assert OPENAI_MODELS["gpt-5.6-sol"] == "gpt-5.6-sol"
 
     def test_openai_aliases_exist(self):
         """OpenAI aliases are properly defined."""
         assert len(OPENAI_ALIASES) > 0
         assert "gpt" in OPENAI_ALIASES
         assert "gpt-5.2-instant" in OPENAI_ALIASES  # Backward compatibility
+        assert OPENAI_ALIASES["sol-5.6"] == "gpt-5.6-sol"
 
     def test_gemini_models_exist(self):
         """Gemini models registry is not empty."""
@@ -54,6 +58,11 @@ class TestModelRegistries:
         """Gemini aliases are properly defined."""
         assert len(GEMINI_ALIASES) > 0
         assert "gemini" in GEMINI_ALIASES
+
+    def test_deepseek_models_and_aliases_exist(self):
+        assert DEEPSEEK_MODELS["deepseek-v4-pro"] == "deepseek-v4-pro"
+        assert DEEPSEEK_MODELS["deepseek-v4-flash"] == "deepseek-v4-flash"
+        assert DEEPSEEK_ALIASES["deepseek-pro"] == "deepseek-v4-pro"
 
     def test_claude_models_exist(self):
         """Claude models registry is not empty."""
@@ -80,6 +89,12 @@ class TestModelRegistries:
         assert "mm" in MODEL_GROUPS
         assert "ollama" in MODEL_GROUPS["mm"]
         assert "lmstudio" in MODEL_GROUPS["mm"]
+        assert MODEL_GROUPS["sol-xhigh"] == ["sol-5.6"]
+        assert MODEL_GROUPS["deepseek-pro-xhigh"] == ["deepseek-pro"]
+        for group in ("mm", "all", "fast"):
+            assert all("gemini" not in model for model in MODEL_GROUPS[group])
+        assert "deepseek-pro" in MODEL_GROUPS["mm"]
+        assert "deepseek-flash" in MODEL_GROUPS["fast"]
 
     def test_lmstudio_models_exist(self):
         """LM Studio models registry is not empty."""
@@ -101,6 +116,7 @@ class TestGetProviderForModel:
         assert get_provider_for_model("gpt-5.2") == "openai"
         assert get_provider_for_model("gpt-5.2-chat-latest") == "openai"
         assert get_provider_for_model("gpt-5.2-pro") == "openai"
+        assert get_provider_for_model("sol-5.6") == "openai"
 
     def test_openai_aliases(self):
         """OpenAI aliases resolve to 'openai' provider."""
@@ -114,6 +130,11 @@ class TestGetProviderForModel:
     def test_gemini_aliases(self):
         """Gemini aliases resolve to 'google' provider."""
         assert get_provider_for_model("gemini") == "google"
+
+    def test_deepseek_models_and_aliases(self):
+        assert get_provider_for_model("deepseek-v4-pro") == "deepseek"
+        assert get_provider_for_model("deepseek-pro") == "deepseek"
+        assert normalize_model_name("deepseek") == ("deepseek", "deepseek-v4-pro")
 
     def test_claude_models(self):
         """Claude models resolve to 'anthropic' provider."""
@@ -177,6 +198,10 @@ class TestNormalizeModelName:
         provider, model = normalize_model_name("gpt-5.2-chat-latest")
         assert provider == "openai"
         assert model == "gpt-5.2-chat-latest"
+
+        provider, model = normalize_model_name("sol-5.6")
+        assert provider == "openai"
+        assert model == "gpt-5.6-sol"
 
         provider, model = normalize_model_name("gpt-5.2-pro")
         assert provider == "openai"
@@ -278,10 +303,15 @@ class TestGetModelDisplayName:
         assert get_model_display_name("gpt-5.2-chat-latest") == "GPT-5.2 Instant"
         assert get_model_display_name("gpt-5.2") == "GPT-5.2 Thinking"
         assert get_model_display_name("gpt-5.2-pro") == "GPT-5.2 Pro"
+        assert get_model_display_name("gpt-5.6-sol") == "GPT-5.6 Sol"
 
     def test_gemini_display_names(self):
         """Gemini models have proper display names."""
         assert get_model_display_name("gemini-3.1-pro-preview") == "Gemini 3.1 Pro Preview"
+
+    def test_deepseek_display_names(self):
+        assert get_model_display_name("deepseek-v4-pro") == "DeepSeek V4 Pro"
+        assert get_model_display_name("deepseek-v4-flash") == "DeepSeek V4 Flash"
 
     def test_claude_display_names(self):
         """Claude models have proper display names."""
@@ -309,6 +339,13 @@ class TestGetModelCharacteristics:
         assert chars["speed"] == "medium"
         assert chars["cost_tier"] == "medium"
         assert chars["context_window"] == 128000
+
+    def test_openai_sol_characteristics(self):
+        """GPT-5.6 Sol exposes xhigh reasoning metadata and its large context."""
+        chars = get_model_characteristics("gpt-5.6-sol")
+        assert chars["cost_tier"] == "very_high"
+        assert chars["context_window"] == 1050000
+        assert "xhigh" in chars["reasoning_efforts"]
 
     def test_openai_instant_characteristics(self):
         """GPT-5.2 Instant has correct characteristics."""
@@ -338,6 +375,12 @@ class TestGetModelCharacteristics:
         assert chars["speed"] == "medium"
         assert chars["cost_tier"] == "medium"
         assert chars["context_window"] == 1000000
+
+    def test_deepseek_characteristics(self):
+        chars = get_model_characteristics("deepseek-v4-pro")
+        assert chars["context_window"] == 1000000
+        assert chars["max_output_tokens"] == 384000
+        assert chars["reasoning_efforts"] == ["high", "max"]
 
     def test_claude_characteristics(self):
         """Claude has correct characteristics."""
@@ -377,6 +420,7 @@ class TestListFunctions:
         models = list_all_models()
         assert "openai" in models
         assert "google" in models
+        assert "deepseek" in models
         assert "anthropic" in models
         assert "alibaba" in models
         assert "lmstudio" in models
@@ -389,6 +433,7 @@ class TestListFunctions:
         assert "gpt" in aliases
         assert "gpt-5.2-instant" in aliases  # Backward compatibility
         assert "gemini" in aliases
+        assert aliases["deepseek-pro"] == "deepseek-v4-pro"
         assert "claude" in aliases
         assert "alibaba" in aliases
         assert "qwen3.6" in aliases

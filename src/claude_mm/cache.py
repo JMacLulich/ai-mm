@@ -26,7 +26,12 @@ def get_cache_dir() -> Path:
     return cache_dir
 
 
-def get_cache_key(model: str, prompt: str, system_prompt: Optional[str] = None) -> str:
+def get_cache_key(
+    model: str,
+    prompt: str,
+    system_prompt: Optional[str] = None,
+    cache_variant: Optional[str] = None,
+) -> str:
     """Generate a cache key from model and prompts.
 
     Uses incremental hashing with null-byte separators to avoid delimiter-collision
@@ -39,12 +44,19 @@ def get_cache_key(model: str, prompt: str, system_prompt: Optional[str] = None) 
     h.update(b"\x00")
     h.update((system_prompt or "").encode())
     h.update(b"\x00")
+    if cache_variant is not None:
+        h.update(cache_variant.encode())
+        h.update(b"\x00")
     h.update(prompt.encode())
     return h.hexdigest()
 
 
 def get_cached_response(
-    model: str, prompt: str, system_prompt: Optional[str] = None, ttl_hours: int = 24
+    model: str,
+    prompt: str,
+    system_prompt: Optional[str] = None,
+    ttl_hours: int = 24,
+    cache_variant: Optional[str] = None,
 ) -> Optional[str]:
     """
     Get cached response if available and not expired.
@@ -64,7 +76,7 @@ def get_cached_response(
         cache_dir = get_cache_dir()
     except Exception:
         return None  # Cache dir unavailable — treat as cache miss
-    cache_key = get_cache_key(model, prompt, system_prompt)
+    cache_key = get_cache_key(model, prompt, system_prompt, cache_variant)
     cache_file = cache_dir / f"{cache_key}.json"
 
     if not cache_file.exists():
@@ -93,7 +105,11 @@ def get_cached_response(
 
 
 def cache_response(
-    model: str, prompt: str, response: str, system_prompt: Optional[str] = None
+    model: str,
+    prompt: str,
+    response: str,
+    system_prompt: Optional[str] = None,
+    cache_variant: Optional[str] = None,
 ) -> None:
     """
     Cache an API response using atomic write to prevent race conditions.
@@ -111,7 +127,7 @@ def cache_response(
     except Exception as e:
         logger.warning("Cache dir unavailable, skipping cache write: %s", e)
         return
-    cache_key = get_cache_key(model, prompt, system_prompt)
+    cache_key = get_cache_key(model, prompt, system_prompt, cache_variant)
     cache_file = cache_dir / f"{cache_key}.json"
 
     cache_data = {

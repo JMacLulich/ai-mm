@@ -40,6 +40,16 @@ def test_get_cache_key():
     assert len(key1) == 64  # SHA256 hex digest
 
 
+def test_reasoning_effort_has_distinct_cache_variant():
+    """Sol medium/high/xhigh responses must never share a cache entry."""
+    baseline = get_cache_key("gpt-5.6-sol", "prompt", "system")
+    xhigh = get_cache_key(
+        "gpt-5.6-sol", "prompt", "system", cache_variant="reasoning_effort=xhigh"
+    )
+
+    assert baseline != xhigh
+
+
 def test_cache_response_and_get(temp_cache_dir):
     """Test caching and retrieving responses."""
     model = "test-model"

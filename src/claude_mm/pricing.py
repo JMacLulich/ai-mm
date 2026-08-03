@@ -15,6 +15,7 @@ import yaml
 
 DEFAULT_PRICING = {
     "openai": {
+        "gpt-5.6-sol": {"input": 5.00, "output": 30.00},
         "gpt-5.4": {"input": 1.75, "output": 14.00, "estimated": True},
         "gpt-5.2-chat-latest": {"input": 0.40, "output": 1.60},  # GPT-5.2 Instant (fast)
         "gpt-5.2": {"input": 1.75, "output": 14.00},  # GPT-5.2 Thinking (standard)
@@ -29,6 +30,10 @@ DEFAULT_PRICING = {
         "gemini-3-flash-preview": {"input": 0.075, "output": 0.30},
         "gemini-2.0-flash-exp": {"input": 0.075, "output": 0.30},
         "gemini-pro": {"input": 0.50, "output": 1.50},
+    },
+    "deepseek": {
+        "deepseek-v4-pro": {"input": 0.435, "output": 0.87},
+        "deepseek-v4-flash": {"input": 0.14, "output": 0.28},
     },
     "anthropic": {
         "claude-opus-4-6": {"input": 5.00, "output": 25.00},
@@ -101,7 +106,7 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
     Get pricing for a specific model.
 
     Args:
-        provider: Provider name (openai, google, anthropic)
+        provider: Provider name (openai, deepseek, google, anthropic, alibaba)
         model: Model identifier
 
     Returns:
@@ -134,6 +139,10 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
         ]:
             if fallback in provider_pricing:
                 return provider_pricing[fallback]
+    elif provider == "deepseek":
+        for fallback in ["deepseek-v4-pro", "deepseek-v4-flash"]:
+            if fallback in provider_pricing:
+                return provider_pricing[fallback]
     elif provider == "anthropic":
         for fallback in ["claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5-20251101"]:
             if fallback in provider_pricing:
@@ -154,6 +163,10 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
             "gemini-3-pro-preview",
             "gemini-3-flash-preview",
         ]:
+            if fallback in default_provider_pricing:
+                return default_provider_pricing[fallback]
+    elif provider == "deepseek":
+        for fallback in ["deepseek-v4-pro", "deepseek-v4-flash"]:
             if fallback in default_provider_pricing:
                 return default_provider_pricing[fallback]
     elif provider == "anthropic":

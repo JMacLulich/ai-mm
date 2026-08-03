@@ -1,6 +1,6 @@
 ---
 name: mm-review
-description: Run parallel multi-model AI code reviews using GPT + Gemini + Claude Opus + local Ollama for instant multi-perspective feedback on code changes. Use when user says "mm review", "get a mm review", "multimode review", "run mm review", "review with mm", "get multi-model feedback", or "parallel review".
+description: Run multi-model AI code reviews using GPT + DeepSeek + Claude Opus + local models, or a max-thinking DeepSeek verification pass. Use when user says "mm review", "get a mm review", "multimode review", "run a DeepSeek verification", "review with max thinking", "get multi-model feedback", or "parallel review".
 disable-model-invocation: false
 allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), AskUserQuestion
 ---
@@ -9,7 +9,7 @@ allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), AskUserQuestion
 
 ## Purpose
 
-Run parallel multi-model AI code reviews using the `ai-mm`. Provides instant perspectives from GPT + Gemini + Claude Opus for broader feedback.
+Run parallel multi-model AI code reviews using `ai-mm`. Provides independent perspectives from GPT + DeepSeek + Claude Opus plus local models for broader feedback.
 
 ## When to Use
 
@@ -24,7 +24,7 @@ Use this skill when user says:
 
 ## Prerequisites
 
-- `ai-mm` must be installed at `~/dev/ai-mm` or `~/../ai-mm`
+- `ai-mm` must be installed at `~/Development/ai-mm` or another checkout that provides `ai`
 - API keys configured in `~/.config/ai-mm/env`
 - Local endpoint configured: `export OLLAMA_BASE_URL="http://localhost:11434"`
 
@@ -40,7 +40,7 @@ which ai
 
 If not found, guide user to install:
 ```bash
-cd ~/dev/ai-mm
+cd ~/Development/ai-mm
 ./run install
 ```
 
@@ -72,15 +72,26 @@ Use `AskUserQuestion`:
 
 ### Step 4: Run Multi-Model Review
 
-Execute the mm review:
+For the normal broad pass, execute the mm review:
 
 ```bash
 git diff | ai review --model mm --focus {chosen_focus}
 ```
 
+For a deep single-model adversarial pass, use GPT-5.6 Sol with xhigh reasoning:
+
+```bash
+git diff | ai review --model sol-5.6 --reasoning-effort xhigh --focus {chosen_focus}
+```
+
+The equivalent convenience profile is `--model sol-xhigh`. Sol is intentionally
+not part of the default `mm` group because it is a premium model; use it when
+the change warrants the extra cost. Reasoning effort is part of the cache key,
+so an xhigh review cannot reuse a lower-effort result.
+
 The output will show:
 - GPT review results
-- Gemini review results
+- DeepSeek review results
 - Claude Opus 4.5 review results
 - Displayed side-by-side for comparison
 
@@ -105,8 +116,8 @@ Present a structured summary. **Always lead with the Priority Summary Table** so
 ## GPT Findings
 [Summarize GPT's key points - top 3-5 issues]
 
-## Gemini Findings
-[Summarize Gemini's key points - top 3-5 issues]
+## DeepSeek Findings
+[Summarize DeepSeek's key points - top 3-5 issues]
 
 ## Claude Opus Findings
 [Summarize Opus's key points - top 3-5 issues]
@@ -144,7 +155,7 @@ Claude: I'll run a multi-model review. What focus do you want?
 
 User: [Selects "Security"]
 
-Claude: Running parallel security review with GPT + Gemini + Claude Opus 4.5...
+Claude: Running parallel security review with GPT + DeepSeek + Claude Opus...
 [Executes: git diff | ai review --model mm --focus security]
 
 # Multi-Model Review Summary
@@ -154,33 +165,33 @@ Claude: Running parallel security review with GPT + Gemini + Claude Opus 4.5...
 2. Missing input validation on email field
 3. Plaintext password in log statement (line 78)
 
-## Gemini Findings
+## DeepSeek Findings
 1. Authentication bypass via header manipulation
 2. SQL injection in user_id (matches GPT)
 3. Rate limiting missing on login endpoint
 
 ## Claude Opus 4.5 Findings
 1. CSRF token missing on state-changing operations
-2. SQL injection in user_id (matches GPT and Gemini)
+2. SQL injection in user_id (matches GPT and DeepSeek)
 3. Weak password hashing algorithm (bcrypt recommended over md5)
 
 ## Consensus Issues (All 3 Models Agree)
 - SQL injection vulnerability (line 42) - CRITICAL
 
 ## Partial Consensus (2/3 Models Agree)
-- Rate limiting missing on login endpoint (GPT + Gemini)
+- Rate limiting missing on login endpoint (GPT + DeepSeek)
 - Password security concerns (GPT logging issue + Opus hashing recommendation)
 
 ## Divergent Perspectives
 - Opus identified CSRF risk that others missed
-- GPT and Gemini focused on input validation, Opus focused on authentication tokens
+- GPT and DeepSeek focused on input validation, Opus focused on authentication tokens
 - All valid, different security perspectives
 
 ## Recommended Actions
 1. Fix SQL injection immediately (use parameterized queries) - **ALL MODELS AGREE**
 2. Add CSRF tokens to all state-changing forms - **Opus priority**
 3. Upgrade password hashing from md5 to bcrypt - **Opus priority**
-4. Add rate limiting to prevent brute force - **GPT + Gemini priority**
+4. Add rate limiting to prevent brute force - **GPT + DeepSeek priority**
 5. Remove password from logs - **GPT priority**
 
 Would you like help implementing any of these fixes?
@@ -247,7 +258,7 @@ Example output:
 ```
 User: "get a mm review" → Selects "Testing (QA)"
 
-Claude: Running parallel testing review with GPT + Gemini + Claude Opus 4.5...
+Claude: Running parallel testing review with GPT + DeepSeek + Claude Opus...
 [Executes: git diff | ai review --model mm --focus testing]
 
 # Multi-Model Review Summary
@@ -261,7 +272,7 @@ Claude: Running parallel testing review with GPT + Gemini + Claude Opus 4.5...
 6. Flaky test: CacheService.test_expiry (timing-dependent, needs mock clock)
 7. No load testing for search endpoint (handles 10x traffic in prod)
 
-## Gemini Testing Findings
+## DeepSeek Testing Findings
 1. calculate_discount missing boundary tests (0, max_value, overflow)
 2. Test fixtures not reused - test data scattered, maintenance burden
 3. No mutation testing coverage - assertions may be passing without validating behavior
@@ -272,7 +283,7 @@ Claude: Running parallel testing review with GPT + Gemini + Claude Opus 4.5...
 8. API contract tests missing - schema validation not tested
 
 ## Claude Opus 4.5 Testing Findings
-1. calculate_discount missing boundary tests (matches Gemini)
+1. calculate_discount missing boundary tests (matches DeepSeek)
 2. No golden master / snapshot tests for UI components
 3. Test database not isolated - integration tests interfere with local dev data
 4. Missing chaos engineering / failure injection tests
@@ -287,13 +298,13 @@ Claude: Running parallel testing review with GPT + Gemini + Claude Opus 4.5...
 - Test data management issues - MEDIUM PRIORITY
 
 ## Partial Consensus (2/3 Models Agree)
-- Test isolation problems (Gemini + Opus)
+- Test isolation problems (DeepSeek + Opus)
 - Brittle test patterns (GPT over-mocking + Opus assertion brittleness)
 
 ## Divergent Perspectives
 - Opus identified golden master / snapshot testing need
 - Opus emphasized chaos engineering and failure injection
-- GPT focused on mock usage, Gemini on fixtures, Opus on assertions
+- GPT focused on mock usage, DeepSeek on fixtures, Opus on assertions
 - All valid, complementary testing perspectives
 
 ## Recommended Actions
@@ -327,7 +338,7 @@ This skill integrates with the separate `ai-mm` repository:
 ## Cost Information
 
 - Typical mm review: $0.05-0.12
-- Uses: GPT-5.4 + Gemini 3.1 Pro (`gemini-3.1-pro-preview`) + Claude Opus 4.6, plus local Qwen 3.6
+- Uses: GPT-5.4 + DeepSeek V4 Pro (`deepseek-v4-pro`) + Claude Opus 4.6, plus local Qwen 3.6
 - Parallel execution: ~2-3 seconds
 - Cached for 24 hours
 
@@ -335,7 +346,7 @@ This skill integrates with the separate `ai-mm` repository:
 
 You can also use specific models:
 - `ai review --model gpt` - GPT-5.4 only ($1.75/$14 per 1M tokens, estimated)
-- `ai review --model gemini` - Gemini 3.1 Pro only ($1.25/$10 per 1M tokens, estimated)
+- `ai review --model deepseek-pro-xhigh --focus verification` - DeepSeek V4 Pro with max thinking
 - `ai review --model claude` - Claude Sonnet 4.5 only ($3/$15 per 1M tokens)
 - `ai review --model opus` - Claude Opus 4.5 only ($5/$25 per 1M tokens)
 - `ai review --model all` - All remote and local review models in parallel

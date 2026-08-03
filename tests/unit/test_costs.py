@@ -45,6 +45,9 @@ def test_estimate_cost():
     cost_gemini = estimate_cost("gemini-3-flash-preview", input_tokens, output_tokens)
     assert cost_gemini < cost_instant
 
+    cost_deepseek = estimate_cost("deepseek-v4-pro", input_tokens, output_tokens)
+    assert 0 < cost_deepseek < cost_instant
+
 
 def test_estimate_cost_from_text():
     """Test cost estimation from text."""

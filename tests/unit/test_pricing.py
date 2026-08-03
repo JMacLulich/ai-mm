@@ -48,3 +48,23 @@ def test_embedded_exact_match_beats_stale_provider_fallback(tmp_path, monkeypatc
     result = pricing.get_model_pricing("openai", "gpt-5.4")
 
     assert result == {"input": 1.75, "output": 14.0, "estimated": True}
+
+
+def test_deepseek_v4_pro_embedded_pricing(tmp_path, monkeypatch):
+    """A stale user file still receives the embedded DeepSeek V4 price."""
+    pricing_file = tmp_path / "pricing.yaml"
+    pricing_file.write_text(
+        yaml.safe_dump(
+            {
+                "openai": {},
+                "anthropic": {},
+                "_metadata": {"last_updated": "2026-01-01T00:00:00", "version": "1.0.0"},
+            }
+        )
+    )
+    monkeypatch.setattr(pricing, "get_pricing_file", lambda: pricing_file)
+
+    assert pricing.get_model_pricing("deepseek", "deepseek-v4-pro") == {
+        "input": 0.435,
+        "output": 0.87,
+    }

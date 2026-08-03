@@ -2,12 +2,13 @@
 LLM Provider abstraction layer.
 
 This module provides a uniform interface for interacting with different LLM providers
-(OpenAI, Google, Anthropic, Alibaba, Ollama) with support for sync and async operations.
+(OpenAI, DeepSeek, Google, Anthropic, Alibaba, Ollama) with support for sync and async operations.
 """
 
 from .alibaba import AlibabaProvider
 from .anthropic import AnthropicProvider
 from .base import Provider, ProviderError, ProviderResponse
+from .deepseek import DeepSeekProvider
 from .google import GoogleProvider
 from .lmstudio import LMStudioProvider
 from .ollama import OllamaProvider
@@ -19,6 +20,7 @@ __all__ = [
     "ProviderError",
     "AlibabaProvider",
     "OpenAIProvider",
+    "DeepSeekProvider",
     "GoogleProvider",
     "AnthropicProvider",
     "OllamaProvider",
@@ -31,7 +33,7 @@ def get_provider(name: str, **kwargs) -> Provider:
     Factory function to get a provider instance.
 
     Args:
-        name: Provider name ('openai', 'google', 'anthropic', 'alibaba', 'ollama')
+        name: Provider name ('openai', 'deepseek', 'google', 'anthropic', 'alibaba', 'ollama')
         **kwargs: Provider-specific configuration
 
     Returns:
@@ -42,6 +44,7 @@ def get_provider(name: str, **kwargs) -> Provider:
     """
     providers = {
         "openai": OpenAIProvider,
+        "deepseek": DeepSeekProvider,
         "alibaba": AlibabaProvider,
         "google": GoogleProvider,
         "anthropic": AnthropicProvider,

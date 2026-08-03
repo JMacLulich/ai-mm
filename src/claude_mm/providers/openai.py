@@ -39,6 +39,7 @@ class OpenAIProvider(Provider):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
         **kwargs,
     ) -> ProviderResponse:
         """
@@ -82,6 +83,9 @@ class OpenAIProvider(Provider):
             if max_tokens:
                 params["max_tokens"] = max_tokens
 
+            if reasoning_effort is not None:
+                params["reasoning_effort"] = reasoning_effort
+
             # Add any additional parameters
             params.update(kwargs)
 
@@ -111,6 +115,7 @@ class OpenAIProvider(Provider):
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
         **kwargs,
     ) -> ProviderResponse:
         """
@@ -154,6 +159,9 @@ class OpenAIProvider(Provider):
             if max_tokens:
                 params["max_tokens"] = max_tokens
 
+            if reasoning_effort is not None:
+                params["reasoning_effort"] = reasoning_effort
+
             # Add any additional parameters
             params.update(kwargs)
 
@@ -184,7 +192,11 @@ class OpenAIProvider(Provider):
             "provider": "openai",
             "model": model,
             "pricing": pricing,
-            "context_window": 128000 if model.startswith("gpt-5") else 8192,
+            "context_window": (
+                1050000
+                if model == "gpt-5.6-sol"
+                else (128000 if model.startswith("gpt-5") else 8192)
+            ),
         }
 
     def validate_key(self) -> tuple[bool, str]:

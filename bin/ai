@@ -8,18 +8,20 @@ Usage:
     ai --configure
     ai configure
     ai plan "prompt" [--model MODEL] [--no-cache]
-    ai review [--model MODEL] [--focus AREA] [--no-cache]
+    ai review [--model MODEL] [--reasoning-effort LEVEL] [--focus AREA] [--no-cache]
     ai stabilize "goal" [--rounds N] [--mode MODE]
     ai cache stats|clear [--older-than HOURS]
     ai usage [--today|--week|--month] [--export FILE]
-    ai check-models [--gpt MODEL] [--claude MODEL] [--gemini MODEL] [--alibaba MODEL] [--local MODEL] [--lmstudio MODEL]
+    ai check-models [--gpt MODEL] [--deepseek MODEL] [--claude MODEL] [--alibaba MODEL] [--local MODEL] [--lmstudio MODEL]
 
 Examples:
     ai plan "Build user authentication"
     ai plan "Migrate auth service" --model mm --depth deep --rounds 3 --strict
     ai plan "Migrate auth service" --quiet-quality
-    ai review --model gemini --focus security
-    ai review --model mm  # Parallel GPT + Gemini + Claude Opus + local Ollama + LM Studio
+    ai review --model deepseek-pro-xhigh --focus verification
+    ai review --model mm  # Parallel GPT + DeepSeek + Claude Opus + local Ollama + LM Studio
+    ai review --model sol-5.6 --reasoning-effort xhigh  # GPT-5.6 Sol frontier review
+    ai review --model sol-xhigh  # Same Sol xhigh profile
     ai stabilize "Add caching layer" --rounds 2 --mode infra
 """
 
@@ -64,7 +66,7 @@ from claude_mm.config_tui import run_config_tui  # noqa: E402
 from claude_mm.models import MODEL_GROUPS  # noqa: E402
 from claude_mm.providers.alibaba import AlibabaProvider  # noqa: E402
 from claude_mm.providers.anthropic import AnthropicProvider  # noqa: E402
-from claude_mm.providers.google import GoogleProvider  # noqa: E402
+from claude_mm.providers.deepseek import DeepSeekProvider  # noqa: E402
 from claude_mm.providers.lmstudio import LMStudioProvider  # noqa: E402
 from claude_mm.providers.ollama import OllamaProvider  # noqa: E402
 from claude_mm.providers.openai import OpenAIProvider  # noqa: E402
@@ -90,7 +92,7 @@ def cmd_review(args):
     if args.model == "mm":
         models = MODEL_GROUPS["mm"]
         print(
-            "🔍 Running multimode review with GPT-5.2 + Gemini 3.1 Pro + Claude Opus 4.6 + local Ollama + LM Studio in parallel...",
+            "🔍 Running multimode review with GPT-5.4 + DeepSeek V4 Pro + Claude Opus 4.6 + local Ollama + LM Studio in parallel...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":
@@ -104,7 +106,7 @@ def cmd_review(args):
     elif args.model == "all":
         models = MODEL_GROUPS["all"]
         print(
-            "🔍 Running review with all providers (GPT + Gemini + Opus + local Ollama + LM Studio) in parallel...",
+            "🔍 Running review with all default providers (GPT + DeepSeek + Opus + local Ollama + LM Studio) in parallel...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":
@@ -118,7 +120,7 @@ def cmd_review(args):
     elif args.model == "fast":
         models = MODEL_GROUPS["fast"]
         print(
-            "🔍 Running review with all 3 fast models (GPT Instant + Gemini Flash + Haiku 4.5) in parallel...",
+            "🔍 Running review with all 3 fast models (GPT Instant + DeepSeek V4 Flash + Haiku 4.5) in parallel...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":
@@ -129,6 +131,18 @@ def cmd_review(args):
                 file=sys.stderr,
             )
         print(file=sys.stderr)
+    elif args.model == "sol-xhigh":
+        models = MODEL_GROUPS["sol-xhigh"]
+        print(
+            "🔍 Running GPT-5.6 Sol review with xhigh reasoning...",
+            file=sys.stderr,
+        )
+    elif args.model == "deepseek-pro-xhigh":
+        models = MODEL_GROUPS["deepseek-pro-xhigh"]
+        print(
+            "🔍 Running DeepSeek V4 Pro review with max thinking...",
+            file=sys.stderr,
+        )
     elif args.model in MODEL_GROUPS:
         # Any other named group (e.g. "local" → qwen36 + gemma4) expands generically.
         models = MODEL_GROUPS[args.model]
@@ -142,6 +156,23 @@ def cmd_review(args):
     else:
         models = [args.model] if args.model else None
 
+    reasoning_effort = args.reasoning_effort
+    if args.model == "sol-xhigh":
+        if reasoning_effort not in (None, "xhigh"):
+            print("Error: --model sol-xhigh requires --reasoning-effort xhigh", file=sys.stderr)
+            sys.exit(2)
+        reasoning_effort = "xhigh"
+    if args.model == "deepseek-pro-xhigh":
+        if reasoning_effort not in (None, "xhigh", "max"):
+            print(
+                "Error: --model deepseek-pro-xhigh requires --reasoning-effort xhigh or max",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        reasoning_effort = "xhigh"
+    if reasoning_effort:
+        print(f"🧠 Reasoning effort: {reasoning_effort}", file=sys.stderr)
+
     # Run review
     try:
         effective_timeout = args.per_model_timeout
@@ -149,7 +180,13 @@ def cmd_review(args):
             # -1 is the "unset" sentinel; normalize for BOTH single- and
             # multi-model paths (single-model previously forwarded -1 straight
             # into review(), which rejects it: "per_model_timeout must be >= 0").
-            effective_timeout = 60.0
+            effective_timeout = 300.0 if args.model == "deepseek-pro-xhigh" else 60.0
+            if args.model == "deepseek-pro-xhigh":
+                print(
+                    "⏱️  Using max-thinking timeout: 300.0s "
+                    "(set --per-model-timeout 0 to disable)",
+                    file=sys.stderr,
+                )
             if models and len(models) > 1:
                 print(
                     "⏱️  Using default per-model timeout: 60.0s "
@@ -193,6 +230,7 @@ def cmd_review(args):
                 on_result=on_result,
                 per_model_timeout=effective_timeout,
                 local_model_timeout=local_timeout,
+                reasoning_effort=reasoning_effort,
             )
 
             # Show per-model costs
@@ -221,6 +259,7 @@ def cmd_review(args):
                 use_cache=not args.no_cache,
                 per_model_timeout=effective_timeout,
                 local_model_timeout=local_timeout,
+                reasoning_effort=reasoning_effort,
             )
 
             print(result.text, file=sys.stdout)
@@ -419,11 +458,11 @@ def cmd_config(args):
 
 
 def cmd_check_models(args):
-    """Check access to configured GPT, Claude, Gemini, and local models."""
+    """Check access to configured GPT, DeepSeek, Claude, and local models."""
     checks = [
         ("gpt", args.gpt, OpenAIProvider),
+        ("deepseek", args.deepseek, DeepSeekProvider),
         ("claude", args.claude, AnthropicProvider),
-        ("gemini", args.gemini, GoogleProvider),
         ("alibaba", args.alibaba, AlibabaProvider),
         ("local", args.local, OllamaProvider),
         ("lmstudio", args.lmstudio, LMStudioProvider),
@@ -442,10 +481,13 @@ def cmd_check_models(args):
         try:
             with timeout_guard(timeout_seconds):
                 provider = provider_cls()
+                request_options = {"temperature": 0, "max_tokens": 5}
+                if provider_name == "deepseek":
+                    request_options["reasoning_effort"] = "none"
                 response = provider.complete(
                     prompt="Reply with OK",
                     model=model,
-                    temperature=0,
+                    **request_options,
                 )
             text = (response.text or "").strip()
             print(f"{provider_name}/{model}: OK - {text[:80]}")
@@ -491,11 +533,28 @@ def main():
     review_parser = subparsers.add_parser("review", help="Review code changes")
     review_parser.add_argument(
         "--model",
-        help="Model to use (gpt, gemini, claude, opus, ollama, lmstudio, mm, all, fast)",
+        help=(
+            "Model/profile to use (gpt, deepseek, deepseek-pro-xhigh, claude, opus, "
+            "ollama, lmstudio, sol-5.6, sol-xhigh, mm, all, fast)"
+        ),
+    )
+    review_parser.add_argument(
+        "--reasoning-effort",
+        choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        default=None,
+        help="Provider reasoning effort; DeepSeek maps xhigh to max thinking",
     )
     review_parser.add_argument(
         "--focus",
-        choices=["general", "review", "security", "performance", "architecture", "testing"],
+        choices=[
+            "general",
+            "review",
+            "verification",
+            "security",
+            "performance",
+            "architecture",
+            "testing",
+        ],
         default="general",
         help="Review focus area (use 'review' for rigorous PR review format)",
     )
@@ -504,7 +563,8 @@ def main():
         type=float,
         default=-1.0,
         help=(
-            "Timeout in seconds for remote models (gpt, gemini, claude, default 60s, 0 disables)"
+            "Timeout in seconds for remote models (default 60s; DeepSeek max profile 300s; "
+            "0 disables)"
         ),
     )
     review_parser.add_argument(
@@ -621,9 +681,9 @@ def main():
         help="Claude model to test (default: claude-opus-4-6)",
     )
     check_parser.add_argument(
-        "--gemini",
-        default="gemini-3.1-pro-preview",
-        help="Gemini model to test (default: gemini-3.1-pro-preview)",
+        "--deepseek",
+        default="deepseek-v4-pro",
+        help="DeepSeek model to test (default: deepseek-v4-pro)",
     )
     check_parser.add_argument(
         "--alibaba",

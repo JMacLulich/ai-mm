@@ -1,6 +1,6 @@
 # AI MM - Multi-Model Code Review Tool
 
-Get code reviews from GPT, Gemini, Claude, Alibaba Cloud Qwen, and local LLMs - in parallel or individually.
+Get code reviews from GPT, DeepSeek, Claude, Alibaba Cloud Qwen, and local LLMs - in parallel or individually.
 
 ## Why AI MM?
 
@@ -9,6 +9,7 @@ Get code reviews from GPT, Gemini, Claude, Alibaba Cloud Qwen, and local LLMs - 
 - **Cost-aware**: Every API call tracked, cached responses save money.
 - **Architecture-focused**: Reviews check DRY, Single Responsibility, and Least Astonishment principles.
 - **Rigorous PR review mode**: `--focus review` enforces staff-level multi-pass risk analysis.
+- **Adversarial verification**: DeepSeek V4 Pro can run at max thinking with an evidence-first verification prompt.
 
 ## Installation
 
@@ -35,8 +36,8 @@ ai configure  # Alias for interactive TUI
 ```
 
 **Supported providers:**
-- **OpenAI** - GPT-5.4 and GPT-5.2 models
-- **Google** - Gemini 3 Pro
+- **OpenAI** - GPT-5.6 Sol, GPT-5.4, and GPT-5.2 models
+- **DeepSeek** - DeepSeek V4 Pro and Flash (set `DEEPSEEK_API_KEY`)
 - **Anthropic** - Claude Opus 4.6
 - **Alibaba Cloud DashScope** - Qwen 3.6 cloud (set `DASHSCOPE_API_KEY`)
 - **Ollama** - Local LLMs (set `OLLAMA_BASE_URL`)
@@ -46,11 +47,13 @@ Keys stored at `~/.config/ai-mm/env` with secure permissions.
 Review defaults are stored in `~/.config/ai/config.yaml`.
 Alibaba Cloud uses DashScope's OpenAI-compatible default endpoint. Override with
 `DASHSCOPE_BASE_URL` only if your account requires a custom endpoint.
+DeepSeek uses `https://api.deepseek.com` by default. Override with
+`DEEPSEEK_BASE_URL` only for a compatible proxy or gateway.
 
 ## Usage
 
 ```bash
-# Parallel multimode review (GPT + Gemini + Claude + local Ollama + LM Studio)
+# Parallel multimode review (GPT + DeepSeek + Claude + local Ollama + LM Studio)
 git diff | ai review --model mm
 
 # Fast models only (cheaper)
@@ -58,7 +61,10 @@ git diff | ai review --model fast
 
 # Single model
 git diff | ai review --model gpt --focus security
-git diff | ai review --model gemini --focus performance
+git diff | ai review --model deepseek --focus performance
+
+# DeepSeek V4 Pro at API-level max thinking with adversarial verification
+git diff | ai review --model deepseek-pro-xhigh --focus verification
 
 # Local LLM (free, offline)
 git diff | ai review --model ollama
@@ -66,6 +72,12 @@ git diff | ai review --model ollama
 # Qwen 3.6: uses Alibaba Cloud if DASHSCOPE_API_KEY is configured,
 # otherwise falls back to local LM Studio
 git diff | ai review --model qwen3.6
+
+# GPT-5.6 Sol at xhigh reasoning effort
+git diff | ai review --model sol-5.6 --reasoning-effort xhigh --focus review
+
+# Convenience profile for the same Sol xhigh review
+git diff | ai review --model sol-xhigh --focus review
 
 # Architecture review
 git diff | ai review --model mm --focus architecture
@@ -94,11 +106,53 @@ ai cache clear
 Use `--focus` to bias what the models prioritize:
 
 - `review` - Rigorous staff-level PR review with structured multi-pass output
+- `verification` - Evidence-first adversarial checking with explicit falsification attempts
 - `general` - Broad code review across correctness, quality, and risk
 - `security` - Vulnerabilities, validation gaps, auth/authz issues
 - `performance` - Efficiency, query patterns, allocations, and hot paths
 - `architecture` - Design quality, boundaries, coupling, and maintainability
 - `testing` - Coverage gaps, edge cases, determinism, and test quality
+
+### GPT-5.6 Sol reasoning effort
+
+`sol-5.6` resolves to the OpenAI API model `gpt-5.6-sol`. Use
+`--reasoning-effort xhigh` when you want the deepest supported reasoning pass.
+The dedicated `sol-xhigh` profile applies that setting automatically. Sol is
+intentionally not part of the default `mm` group because it is a premium model;
+invoke it explicitly when the review warrants the additional cost.
+
+### DeepSeek max-thinking verification
+
+`deepseek-pro-xhigh` resolves to `deepseek-v4-pro`, enables thinking, and maps the
+shared `xhigh` setting to DeepSeek's `max` reasoning effort. Pair it with
+`--focus verification` to require evidence, falsification attempts, and explicit
+VERIFIED/DISPROVED/UNVERIFIED verdicts. The standard `mm`, `all`, and `fast`
+groups now use DeepSeek as the default independent reasoning provider. The max
+profile uses a 300-second default orchestration and HTTP timeout and disables
+hidden SDK retries so a timed-out expensive request is not silently submitted again.
+
+### Iterative review loop
+
+For an iterative pass that fixes findings and reruns review until only
+low-priority items remain, use the bundled `mm-review-loop` Claude skill or run
+the commands directly:
+
+```bash
+# Broad multi-model loop
+git diff | ai review --model mm --focus review
+
+# Deep adversarial Sol loop
+git diff | ai review --model sol-xhigh --focus review --no-cache
+
+# Evidence-first DeepSeek max-thinking loop
+git diff | ai review --model deepseek-pro-xhigh --focus verification --no-cache
+```
+
+The loop treats critical, high, and valid medium findings as work to fix in the
+current round. It stops when remaining findings are low-priority or clearly
+non-actionable. Use `--no-cache` when you require a fresh model pass; otherwise
+the cache is safe across reasoning levels because the effort setting is part of
+the cache key.
 
 ## Local LLM Support
 
@@ -149,7 +203,7 @@ ai-mm/
 │   ├── env.py              # API key management
 │   ├── prompts.py          # System prompts
 │   ├── models.py           # Model registry
-│   └── providers/          # OpenAI, Google, Anthropic, Alibaba, Ollama, LM Studio
+│   └── providers/          # OpenAI, DeepSeek, Anthropic, Alibaba, Ollama, LM Studio
 ├── bin/ai                  # CLI entry point
 ├── tests/                  # Unit and integration tests
 └── commands/               # ./run commands
@@ -166,7 +220,7 @@ ai configure
 mkdir -p ~/.config/ai-mm
 cat > ~/.config/ai-mm/env <<'EOF'
 export OPENAI_API_KEY="sk-..."
-export GOOGLE_AI_API_KEY="..."
+export DEEPSEEK_API_KEY="..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 export DASHSCOPE_API_KEY="..."
 export OLLAMA_BASE_URL="http://localhost:11434"

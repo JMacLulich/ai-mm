@@ -64,6 +64,20 @@ _GEMINI_PRO_PRICING = {
     "estimated": True,
 }
 
+_DEEPSEEK_PRO_PRICING = {
+    "input": 0.435,
+    "output": 0.87,
+    "cached": 0.003625,
+    "estimated": False,
+}
+
+_DEEPSEEK_FLASH_PRICING = {
+    "input": 0.14,
+    "output": 0.28,
+    "cached": 0.0028,
+    "estimated": False,
+}
+
 _CLAUDE_SONNET_PRICING = {
     "input": 3.00,  # $3.00 per 1M tokens (Claude Sonnet 4.5)
     "output": 15.00,  # $15.00 per 1M tokens
@@ -99,6 +113,12 @@ PRICING = {
     "gemini-3-pro-preview": _GEMINI_PRO_PRICING.copy(),
     "gemini-2.5-pro": _GEMINI_PRO_PRICING.copy(),
     "gemini-3-flash-preview": _GEMINI_FLASH_PRICING.copy(),
+    # DeepSeek models
+    "deepseek": _DEEPSEEK_PRO_PRICING.copy(),
+    "deepseek-pro": _DEEPSEEK_PRO_PRICING.copy(),
+    "deepseek-v4-pro": _DEEPSEEK_PRO_PRICING.copy(),
+    "deepseek-flash": _DEEPSEEK_FLASH_PRICING.copy(),
+    "deepseek-v4-flash": _DEEPSEEK_FLASH_PRICING.copy(),
     # Claude models (approximate pricing - verify with Anthropic)
     "claude": _CLAUDE_OPUS_PRICING.copy(),
     "opus": _CLAUDE_OPUS_PRICING.copy(),

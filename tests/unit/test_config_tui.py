@@ -13,6 +13,7 @@ from claude_mm.config_tui import (
     _prompt_for_value,
     _read_menu_key,
     _supports_color,
+    _test_api_key,
     load_existing_keys,
     load_existing_settings,
     mask_key,
@@ -130,7 +131,7 @@ class TestBuildMenuRows:
         rows = _build_menu_rows(keys)
         provider_names = [r["provider"] for r in rows if not r["is_exit"]]
         assert "openai" in provider_names
-        assert "google" in provider_names
+        assert "deepseek" in provider_names
         assert "anthropic" in provider_names
         assert "alibaba" in provider_names
         assert "ollama" in provider_names
@@ -260,6 +261,34 @@ class TestNextMenuIndex:
         assert _next_menu_index(3, "down", 7) == 4
 
 
+class TestApiKeyValidation:
+    def test_deepseek_uses_flash_with_thinking_disabled(self, monkeypatch):
+        captured = {}
+
+        class StubDeepSeekProvider:
+            def __init__(self, api_key):
+                captured["api_key"] = api_key
+
+            def complete(self, **kwargs):
+                captured["request"] = kwargs
+
+        monkeypatch.setattr(
+            "claude_mm.providers.deepseek.DeepSeekProvider",
+            StubDeepSeekProvider,
+        )
+
+        assert _test_api_key("deepseek", "test-key") == (True, "Valid")
+        assert captured == {
+            "api_key": "test-key",
+            "request": {
+                "prompt": "Reply with OK",
+                "model": "deepseek-v4-flash",
+                "max_tokens": 5,
+                "reasoning_effort": "none",
+            },
+        }
+
+
 class TestSaveAndLoadKeys:
     def test_save_and_load_roundtrip(self, tmp_path, monkeypatch):
         monkeypatch.setattr("claude_mm.env.CONFIG_DIR", tmp_path / "ai-mm")
@@ -267,13 +296,13 @@ class TestSaveAndLoadKeys:
 
         keys = {
             "OPENAI_API_KEY": "sk-test-12345678",
-            "GOOGLE_AI_API_KEY": "test-google-key",
+            "DEEPSEEK_API_KEY": "test-deepseek-key",
         }
         save_keys(keys)
 
         loaded = load_existing_keys()
         assert loaded["OPENAI_API_KEY"] == "sk-test-12345678"
-        assert loaded["GOOGLE_AI_API_KEY"] == "test-google-key"
+        assert loaded["DEEPSEEK_API_KEY"] == "test-deepseek-key"
 
     def test_load_missing_file(self, tmp_path, monkeypatch):
         monkeypatch.setattr("claude_mm.env.ENV_FILE", tmp_path / "nonexistent" / "env")

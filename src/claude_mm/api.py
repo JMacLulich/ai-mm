@@ -12,7 +12,7 @@ Example usage:
     result = review("git diff output", model="gpt")
 
     # Multi-model review
-    results = review("git diff output", models=["gpt", "gemini"])
+    results = review("git diff output", models=["gpt", "deepseek-pro"])
 
     # Planning
     plan_result = plan("Add user authentication", model="gpt-5.2")
@@ -47,7 +47,10 @@ from claude_mm.usage import log_api_call
 logger = logging.getLogger(__name__)
 
 VALID_FOCUS_VALUES = frozenset(
-    {"general", "review", "security", "performance", "architecture", "testing"}
+    {"general", "review", "verification", "security", "performance", "architecture", "testing"}
+)
+REASONING_EFFORT_VALUES = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
 )
 
 
@@ -330,6 +333,7 @@ def _validate_review_args(
     per_model_timeout: Optional[float],
     prompt: str = "",
     local_model_timeout: Optional[float] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> None:
     """Validate shared review() / review_async() arguments, raising ValueError on bad input."""
     if not prompt or not prompt.strip():
@@ -348,6 +352,37 @@ def _validate_review_args(
         raise ValueError("per_model_timeout must be >= 0")
     if local_model_timeout is not None and local_model_timeout < 0:
         raise ValueError("local_model_timeout must be >= 0")
+    if reasoning_effort is not None and reasoning_effort not in REASONING_EFFORT_VALUES:
+        raise ValueError(
+            f"Invalid reasoning_effort '{reasoning_effort}'. "
+            f"Must be one of: {sorted(REASONING_EFFORT_VALUES)}"
+        )
+
+
+def _cache_variant(reasoning_effort: Optional[str]) -> Optional[str]:
+    """Keep provider request options from colliding in the response cache."""
+    return f"reasoning_effort={reasoning_effort}" if reasoning_effort else None
+
+
+def _review_single_with_options(
+    prompt: str,
+    model: str,
+    system_prompt: str,
+    use_cache: bool,
+    cache_ttl: int,
+    reasoning_effort: Optional[str] = None,
+) -> "ReviewResult":
+    """Compatibility wrapper that only passes new options when requested."""
+    if reasoning_effort is None:
+        return _review_single(prompt, model, system_prompt, use_cache, cache_ttl)
+    return _review_single(
+        prompt,
+        model,
+        system_prompt,
+        use_cache,
+        cache_ttl,
+        reasoning_effort=reasoning_effort,
+    )
 
 
 def review(
@@ -360,21 +395,22 @@ def review(
     on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
     per_model_timeout: Optional[float] = None,
     local_model_timeout: Optional[float] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Union["ReviewResult", "MultiReviewResult"]:
     """
     Perform code review with one or more AI models.
 
     Args:
         prompt: Code or diff to review
-        model: Single model to use (e.g., 'gpt', 'gemini', 'claude')
+        model: Single model to use (e.g., 'gpt', 'deepseek-pro', 'claude')
         models: Multiple models to use (for parallel review). Mutually exclusive with model.
         focus: Review focus ('general', 'review', 'security', 'performance', 'architecture',
-            'testing')
+            'testing', 'verification')
         use_cache: Whether to use cached responses
         cache_ttl: Cache TTL in hours (overrides default; 0 = expire immediately / no cache read)
         on_result: Callback invoked as each model completes (model_name, result, duration_secs).
             Only available in the multi-model sync path.
-        per_model_timeout: Timeout in seconds for remote models (gpt, gemini, claude, etc.).
+        per_model_timeout: Timeout in seconds for remote models (gpt, deepseek, claude, etc.).
             0.0 or None uses the configured default (review_per_model_timeout_seconds, 60s).
             Note: underlying HTTP requests may continue after timeout — configure
             provider-level timeouts for true request cancellation.
@@ -382,6 +418,9 @@ def review(
             Overrides per_model_timeout for local providers only.
             0.0 or None uses the configured default (local_model_timeout_seconds, 120s).
             Set higher than per_model_timeout since local models may be slower to respond.
+        reasoning_effort: Provider reasoning effort. Supported values include ``xhigh``;
+            it is applied to OpenAI and DeepSeek models in a multi-provider review. DeepSeek
+            maps ``xhigh`` to its API-level ``max`` setting.
 
     Returns:
         ReviewResult for single model, MultiReviewResult for multiple models
@@ -394,11 +433,19 @@ def review(
         >>> result = review("git diff output", model="gpt")
         >>> print(result.text)
 
-        >>> results = review("git diff output", models=["gpt", "gemini"])
+        >>> results = review("git diff output", models=["gpt", "deepseek-pro"])
         >>> for model, result in results:
         ...     print(f"{model}: {result.text}")
     """
-    _validate_review_args(model, models, focus, per_model_timeout, prompt, local_model_timeout)
+    _validate_review_args(
+        model,
+        models,
+        focus,
+        per_model_timeout,
+        prompt,
+        local_model_timeout,
+        reasoning_effort,
+    )
 
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
@@ -443,7 +490,13 @@ def review(
         if applied_timeout is not None and applied_timeout > 0:
             executor = _get_executor()
             f = executor.submit(
-                _review_single, prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
+                _review_single_with_options,
+                prompt,
+                model_list[0],
+                system_prompt,
+                use_cache,
+                effective_cache_ttl,
+                reasoning_effort,
             )
             try:
                 return f.result(timeout=applied_timeout)
@@ -452,12 +505,13 @@ def review(
                 raise AllModelsFailedError(
                     {model_list[0]: f"timed out after {applied_timeout:.1f}s"}
                 )
-        return _review_single(
+        return _review_single_with_options(
             prompt,
             model_list[0],
             system_prompt,
             use_cache,
             effective_cache_ttl,
+            reasoning_effort,
         )
 
     return _review_multi(
@@ -469,6 +523,7 @@ def review(
         on_result,
         effective_timeout,
         effective_local_timeout,
+        reasoning_effort,
     )
 
 
@@ -478,6 +533,7 @@ def _review_single(
     system_prompt: str,
     use_cache: bool,
     cache_ttl: int,
+    reasoning_effort: Optional[str] = None,
 ) -> "ReviewResult":
     """Internal: Single model review with cache check and side effects.
 
@@ -487,9 +543,14 @@ def _review_single(
     # cache_ttl=0 means "skip caching entirely for this call" (per documented contract)
     effective_use_cache = use_cache and cache_ttl > 0
 
+    cache_variant = _cache_variant(reasoning_effort)
     if effective_use_cache:
         cached = get_cached_response(
-            model_id, prompt, system_prompt, ttl_hours=cache_ttl
+            model_id,
+            prompt,
+            system_prompt,
+            ttl_hours=cache_ttl,
+            cache_variant=cache_variant,
         )
         if cached is not None:
             return ReviewResult(
@@ -506,7 +567,22 @@ def _review_single(
 
     _log_profile_selection(model, provider_name, model_id)
     provider = get_provider(provider_name)
-    response = provider.complete(prompt, model_id, system_prompt=system_prompt)
+    provider_kwargs = {}
+    if reasoning_effort is not None:
+        if provider_name in {"openai", "deepseek"}:
+            provider_kwargs["reasoning_effort"] = reasoning_effort
+        else:
+            logger.warning(
+                "Ignoring reasoning_effort=%s for model without effort controls: %s",
+                reasoning_effort,
+                model,
+            )
+    response = provider.complete(
+        prompt,
+        model_id,
+        system_prompt=system_prompt,
+        **provider_kwargs,
+    )
     _audit_served_model(model_id, response)
 
     # Non-critical side effects: log failure should not prevent returning the result
@@ -522,7 +598,13 @@ def _review_single(
         logger.warning("Failed to log API call for %s: %s", model_id, _safe_err(e))
 
     if effective_use_cache:
-        cache_response(model_id, prompt, response.text, system_prompt)
+        cache_response(
+            model_id,
+            prompt,
+            response.text,
+            system_prompt,
+            cache_variant=cache_variant,
+        )
 
     return ReviewResult(response, cached=False)
 
@@ -536,6 +618,7 @@ def _review_multi(
     on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
     per_model_timeout: Optional[float] = None,
     local_model_timeout: Optional[float] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> "MultiReviewResult":
     """
     Internal: Multi-model review using ThreadPoolExecutor with per-model deadlines.
@@ -568,7 +651,13 @@ def _review_multi(
         for m in models:
             logger.info("Starting review with %s...", m)
             future = executor.submit(
-                _review_single, prompt, m, system_prompt, use_cache, cache_ttl
+                _review_single_with_options,
+                prompt,
+                m,
+                system_prompt,
+                use_cache,
+                cache_ttl,
+                reasoning_effort,
             )
             start_times[future] = now
             future_to_model[future] = m
@@ -703,7 +792,13 @@ def _review_multi(
             fallback_start = time.perf_counter()
             try:
                 fb_future = _get_executor().submit(
-                    _review_single, prompt, fallback_model, system_prompt, use_cache, cache_ttl
+                    _review_single_with_options,
+                    prompt,
+                    fallback_model,
+                    system_prompt,
+                    use_cache,
+                    cache_ttl,
+                    reasoning_effort,
                 )
                 fallback_result = fb_future.result(timeout=remaining_for_fallback)
                 results[fallback_model] = fallback_result
@@ -891,6 +986,27 @@ def stabilize(
 # Async API variants
 
 
+async def _review_single_async_with_options(
+    prompt: str,
+    model: str,
+    system_prompt: str,
+    use_cache: bool,
+    cache_ttl: int,
+    reasoning_effort: Optional[str] = None,
+) -> "ReviewResult":
+    """Compatibility wrapper that only passes new options when requested."""
+    if reasoning_effort is None:
+        return await _review_single_async(prompt, model, system_prompt, use_cache, cache_ttl)
+    return await _review_single_async(
+        prompt,
+        model,
+        system_prompt,
+        use_cache,
+        cache_ttl,
+        reasoning_effort=reasoning_effort,
+    )
+
+
 async def review_async(
     prompt: str,
     model: Optional[str] = None,
@@ -900,6 +1016,7 @@ async def review_async(
     cache_ttl: Optional[int] = None,
     per_model_timeout: Optional[float] = None,
     local_model_timeout: Optional[float] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Union["ReviewResult", "MultiReviewResult"]:
     """
     Async version of review(). See review() for full documentation.
@@ -915,7 +1032,15 @@ async def review_async(
         ValueError: If both model and models are provided, models is empty, focus is invalid,
             per_model_timeout is negative, or local_model_timeout is negative
     """
-    _validate_review_args(model, models, focus, per_model_timeout, prompt, local_model_timeout)
+    _validate_review_args(
+        model,
+        models,
+        focus,
+        per_model_timeout,
+        prompt,
+        local_model_timeout,
+        reasoning_effort,
+    )
 
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
@@ -947,8 +1072,13 @@ async def review_async(
             effective_local_timeout = 120.0
 
     if len(model_list) == 1:
-        coro = _review_single_async(
-            prompt, model_list[0], system_prompt, use_cache, effective_cache_ttl
+        coro = _review_single_async_with_options(
+            prompt,
+            model_list[0],
+            system_prompt,
+            use_cache,
+            effective_cache_ttl,
+            reasoning_effort,
         )
         # Apply the appropriate timeout for this model (local vs remote)
         applied_timeout = (
@@ -971,12 +1101,13 @@ async def review_async(
         )
         timeout_for_model = model_t if (model_t is not None and model_t > 0) else 0.0
         try:
-            coro = _review_single_async(
+            coro = _review_single_async_with_options(
                 prompt,
                 model_name,
                 system_prompt,
                 use_cache,
                 effective_cache_ttl,
+                reasoning_effort,
             )
             if timeout_for_model > 0:
                 result = await asyncio.wait_for(coro, timeout=timeout_for_model)
@@ -1030,8 +1161,13 @@ async def review_async(
             )
             fallback_t = fallback_t if (fallback_t is not None and fallback_t > 0) else 0.0
             try:
-                coro = _review_single_async(
-                    prompt, fallback_model, system_prompt, use_cache, effective_cache_ttl
+                coro = _review_single_async_with_options(
+                    prompt,
+                    fallback_model,
+                    system_prompt,
+                    use_cache,
+                    effective_cache_ttl,
+                    reasoning_effort,
                 )
                 if fallback_t > 0:
                     fallback_result = await asyncio.wait_for(coro, timeout=fallback_t)
@@ -1061,6 +1197,7 @@ async def _review_single_async(
     system_prompt: str,
     use_cache: bool,
     cache_ttl: int,
+    reasoning_effort: Optional[str] = None,
 ) -> "ReviewResult":
     """Internal: Async single model review. All blocking I/O is offloaded to a thread pool.
 
@@ -1069,6 +1206,7 @@ async def _review_single_async(
     provider_name, model_id = normalize_model_name(model)
     effective_use_cache = use_cache and cache_ttl > 0
 
+    cache_variant = _cache_variant(reasoning_effort)
     if effective_use_cache:
         cached = await asyncio.to_thread(
             get_cached_response,
@@ -1076,6 +1214,7 @@ async def _review_single_async(
             prompt,
             system_prompt,
             ttl_hours=cache_ttl,
+            cache_variant=cache_variant,
         )
         if cached is not None:
             return ReviewResult(
@@ -1092,7 +1231,22 @@ async def _review_single_async(
 
     _log_profile_selection(model, provider_name, model_id)
     provider = get_provider(provider_name)
-    response = await provider.complete_async(prompt, model_id, system_prompt=system_prompt)
+    provider_kwargs = {}
+    if reasoning_effort is not None:
+        if provider_name in {"openai", "deepseek"}:
+            provider_kwargs["reasoning_effort"] = reasoning_effort
+        else:
+            logger.warning(
+                "Ignoring reasoning_effort=%s for model without effort controls: %s",
+                reasoning_effort,
+                model,
+            )
+    response = await provider.complete_async(
+        prompt,
+        model_id,
+        system_prompt=system_prompt,
+        **provider_kwargs,
+    )
     _audit_served_model(model_id, response)
 
     # Non-critical side effect: log failure should not prevent returning the result
@@ -1110,7 +1264,12 @@ async def _review_single_async(
 
     if effective_use_cache:
         await asyncio.to_thread(
-            cache_response, model_id, prompt, response.text, system_prompt
+            cache_response,
+            model_id,
+            prompt,
+            response.text,
+            system_prompt,
+            cache_variant=cache_variant,
         )
 
     return ReviewResult(response, cached=False)

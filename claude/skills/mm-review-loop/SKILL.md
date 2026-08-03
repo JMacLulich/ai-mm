@@ -1,6 +1,7 @@
 ---
 name: mm-review-loop
-description: Run iterative multi-model code reviews, fixing issues each round, until only low-priority (nice-to-have) items remain. Use when user says "do multiple mm rounds till low hanging left", "mm review loop", "keep reviewing and fixing", "iterate till clean", or "review and fix until only nits left".
+description: Run iterative multi-model, DeepSeek max-thinking verification, or GPT-5.6 Sol xhigh code reviews, fixing issues each round, until only low-priority (nice-to-have) items remain. Use when user says "do multiple mm rounds till low hanging left", "mm review loop", "DeepSeek verification loop", "Sol review loop", "keep reviewing and fixing", "iterate till clean", or "review and fix until only nits left".
+user-invocable: true
 disable-model-invocation: false
 allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), Bash(./run *), Read, Edit, Write, Glob, Grep
 ---
@@ -9,7 +10,7 @@ allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), Bash(./run *), Re
 
 ## Purpose
 
-Run mm review → fix all must-fix/high/medium issues → repeat until models only flag low-priority (nice-to-have) items. This is the iterative improvement workflow.
+Run mm, DeepSeek V4 Pro max-thinking verification, or GPT-5.6 Sol xhigh review → fix all valid must-fix/high/medium issues → repeat until models only flag low-priority (nice-to-have) items. This is the iterative improvement workflow.
 
 ## Trigger Phrases
 
@@ -57,6 +58,18 @@ Build the review command from the target files, e.g.:
 cat src/foo/api.py src/foo/cache.py | ai review --model mm --focus review --per-model-timeout 120
 ```
 
+For a premium single-model adversarial round, use:
+
+```bash
+cat src/foo/api.py src/foo/cache.py | ai review --model sol-xhigh --focus review
+```
+
+For an evidence-first max-thinking verification round, use:
+
+```bash
+cat src/foo/api.py src/foo/cache.py | ai review --model deepseek-pro-xhigh --focus verification
+```
+
 ### Step 2: Run MM Review
 
 Execute the review and capture output. Read the full output file if it's saved to disk.
@@ -72,9 +85,9 @@ Build a priority table:
 ```
 | Priority | Issue | Models | Action |
 |----------|-------|--------|--------|
-| 🔴 | [issue] | GPT + Gemini | Fix now |
+| 🔴 | [issue] | GPT + DeepSeek | Fix now |
 | 🟠 | [issue] | Opus | Fix now |
-| 🟡 | [issue] | Gemini | Fix if quick |
+| 🟡 | [issue] | DeepSeek | Fix if quick |
 | 🔵 | No tests | All | Skip |
 ```
 

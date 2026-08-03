@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional, Tuple
 # OpenAI Models
 OPENAI_MODELS = {
     # User-facing name -> API name
+    "gpt-5.6-sol": "gpt-5.6-sol",  # Frontier model for complex professional work
     "gpt-5.4": "gpt-5.4",  # Latest thinking model for deep review
     "gpt-5.2-chat-latest": "gpt-5.2-chat-latest",  # Fast workhorse (Instant)
     "gpt-5.2": "gpt-5.2",  # Thinking model for complex work
@@ -28,6 +29,9 @@ OPENAI_MODELS = {
 
 # User-friendly aliases
 OPENAI_ALIASES = {
+    "sol": "gpt-5.6-sol",
+    "sol-5.6": "gpt-5.6-sol",
+    "gpt-5.6": "gpt-5.6-sol",  # Official unsuffixed alias routes to Sol
     "gpt": "gpt-5.4",  # Default to latest thinking model
     "gpt-5": "gpt-5.4",
     "gpt-instant": "gpt-5.2-chat-latest",
@@ -47,6 +51,18 @@ GEMINI_ALIASES = {
     "gemini": "gemini-3.1-pro-preview",  # Default to latest available 3.1 Pro
     "gemini-pro": "gemini-3.1-pro-preview",  # Alias to latest available 3.1 Pro
     "gemini-flash": "gemini-3-flash-preview",
+}
+
+# DeepSeek Models (OpenAI-compatible API)
+DEEPSEEK_MODELS = {
+    "deepseek-v4-pro": "deepseek-v4-pro",  # Maximum-quality reasoning model
+    "deepseek-v4-flash": "deepseek-v4-flash",  # Lower-latency V4 model
+}
+
+DEEPSEEK_ALIASES = {
+    "deepseek": "deepseek-v4-pro",
+    "deepseek-pro": "deepseek-v4-pro",
+    "deepseek-flash": "deepseek-v4-flash",
 }
 
 # Anthropic Claude Models
@@ -112,17 +128,19 @@ QWEN_DYNAMIC_ALIASES = {
 MODEL_GROUPS = {
     "mm": [
         "gpt-5.4",
-        "gemini",
+        "deepseek-pro",
         "claude-opus-4-6",
         "ollama",
         "lmstudio",
     ],  # Multimode includes both local providers
-    "all": ["gpt-5.4", "gemini", "claude-opus-4-6", "ollama", "lmstudio"],
+    "all": ["gpt-5.4", "deepseek-pro", "claude-opus-4-6", "ollama", "lmstudio"],
     # All providers
     "local": ["lmstudio", "gemma4"],  # Local-only LM Studio profiles: qwen36 + gemma4
+    "sol-xhigh": ["sol-5.6"],  # Explicit premium single-model review profile
+    "deepseek-pro-xhigh": ["deepseek-pro"],  # V4 Pro with API-level max thinking
     "fast": [
         "gpt-5.2-chat-latest",
-        "gemini-3-flash-preview",
+        "deepseek-flash",
         "claude-haiku-4-5-20251001",
     ],  # Fast models
 }
@@ -166,6 +184,10 @@ def get_provider_for_model(model: str) -> Optional[str]:
     # Check Gemini
     if model in GEMINI_MODELS or model in GEMINI_ALIASES:
         return "google"
+
+    # Check DeepSeek
+    if model in DEEPSEEK_MODELS or model in DEEPSEEK_ALIASES:
+        return "deepseek"
 
     # Check Claude
     if model in CLAUDE_MODELS or model in CLAUDE_ALIASES:
@@ -226,6 +248,12 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
     if model in GEMINI_ALIASES:
         return "google", GEMINI_MODELS[GEMINI_ALIASES[model]]
 
+    # Try DeepSeek
+    if model in DEEPSEEK_MODELS:
+        return "deepseek", DEEPSEEK_MODELS[model]
+    if model in DEEPSEEK_ALIASES:
+        return "deepseek", DEEPSEEK_MODELS[DEEPSEEK_ALIASES[model]]
+
     # Try Claude
     if model in CLAUDE_MODELS:
         return "anthropic", CLAUDE_MODELS[model]
@@ -269,6 +297,7 @@ def get_model_display_name(api_model: str) -> str:
     """
     display_names = {
         # OpenAI
+        "gpt-5.6-sol": "GPT-5.6 Sol",
         "gpt-5.4": "GPT-5.4",
         "gpt-5.2-chat-latest": "GPT-5.2 Instant",
         "gpt-5.2": "GPT-5.2 Thinking",
@@ -281,6 +310,9 @@ def get_model_display_name(api_model: str) -> str:
         "gemini-2.5-pro": "Gemini 2.5 Pro",
         "gemini-3-flash-preview": "Gemini 3 Flash",
         "gemini-2.0-flash-exp": "Gemini 2.0 Flash (Experimental)",
+        # DeepSeek
+        "deepseek-v4-pro": "DeepSeek V4 Pro",
+        "deepseek-v4-flash": "DeepSeek V4 Flash",
         # Claude
         "claude-opus-4-6": "Claude Opus 4.6",
         "claude-sonnet-4-6": "Claude Sonnet 4.6",
@@ -315,6 +347,14 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
     # Model characteristics
     chars = {
         # OpenAI
+        "gpt-5.6-sol": {
+            "speed": "slow",
+            "cost_tier": "very_high",
+            "context_window": 1050000,
+            "max_output_tokens": 128000,
+            "reasoning_efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+            "description": "Frontier GPT-5.6 Sol model for complex professional work",
+        },
         "gpt-5.4": {
             "speed": "medium",
             "cost_tier": "medium",
@@ -381,6 +421,23 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "cost_tier": "low",
             "context_window": 1000000,
             "description": "Experimental Gemini 2.0",
+        },
+        # DeepSeek
+        "deepseek-v4-pro": {
+            "speed": "moderate",
+            "cost_tier": "low",
+            "context_window": 1000000,
+            "max_output_tokens": 384000,
+            "reasoning_efforts": ["high", "max"],
+            "description": "DeepSeek V4 Pro with high or max thinking",
+        },
+        "deepseek-v4-flash": {
+            "speed": "fast",
+            "cost_tier": "very_low",
+            "context_window": 1000000,
+            "max_output_tokens": 384000,
+            "reasoning_efforts": ["high", "max"],
+            "description": "Lower-latency DeepSeek V4 model with thinking support",
         },
         # Claude
         "claude-opus-4-6": {
@@ -481,6 +538,7 @@ def list_all_models() -> Dict[str, list]:
     return {
         "openai": list(OPENAI_MODELS.keys()),
         "google": list(GEMINI_MODELS.keys()),
+        "deepseek": list(DEEPSEEK_MODELS.keys()),
         "anthropic": list(CLAUDE_MODELS.keys()),
         "alibaba": list(ALIBABA_MODELS.keys()),
         "ollama": list(OLLAMA_MODELS.keys()),
@@ -498,6 +556,7 @@ def list_all_aliases() -> Dict[str, str]:
     all_aliases = {}
     all_aliases.update(OPENAI_ALIASES)
     all_aliases.update(GEMINI_ALIASES)
+    all_aliases.update(DEEPSEEK_ALIASES)
     all_aliases.update(CLAUDE_ALIASES)
     all_aliases.update(ALIBABA_ALIASES)
     all_aliases.update(QWEN_DYNAMIC_ALIASES)

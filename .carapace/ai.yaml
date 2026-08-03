@@ -19,13 +19,13 @@ commands:
     completion:
       flag:
         model:
-          - "mm\tMulti-model planning synthesis (GPT-5.2 + Gemini + Claude)\tmagenta"
+          - "mm\tMulti-model planning synthesis (GPT-5.2 + DeepSeek + Claude)\tmagenta"
           - "gpt-5.4\tGPT-5.4 ($1.75/$14 per 1M, estimated)\tgreen"
           - "gpt-5.2\tGPT-5.2 Chat Latest ($1.75/$14 per 1M)\tcyan"
           - "gpt-5.2-chat-latest\tGPT-5.2 Instant - fast ($0.40/$1.60 per 1M)\tblue"
           - "gpt-5.2-pro\tGPT-5.2 Pro - expensive ($8.75/$70 per 1M)\tred"
-          - "gemini\tGemini 3 Flash Preview\tblue"
-          - "gemini-pro\tGemini 3 Pro Preview\tmagenta"
+          - "deepseek\tDeepSeek V4 Pro\tblue"
+          - "deepseek-pro\tDeepSeek V4 Pro\tmagenta"
           - "claude\tClaude Sonnet 4.5 (claude-sonnet-4-5-20250929)\tyellow"
           - "opus\tClaude Opus 4.5 (claude-opus-4-5-20251101)\tred"
         depth:
@@ -43,27 +43,42 @@ commands:
     flags:
       --model=: AI model to use
       --focus=: Review focus area
+      --reasoning-effort=: Provider reasoning effort (DeepSeek maps xhigh to max)
       --no-cache: Bypass response cache
     completion:
       flag:
         model:
-          - "mm\tMultimode - GPT-5.4 + Gemini + Opus + local models\tmagenta"
+          - "mm\tMultimode - GPT-5.4 + DeepSeek + Opus + local models\tmagenta"
+          - "deepseek-pro-xhigh\tDeepSeek V4 Pro with max thinking\tred"
+          - "deepseek-pro\tDeepSeek V4 Pro\tmagenta"
+          - "deepseek-flash\tDeepSeek V4 Flash\tblue"
+          - "sol-xhigh\tGPT-5.6 Sol with xhigh reasoning\tred"
+          - "sol-5.6\tGPT-5.6 Sol (set --reasoning-effort xhigh)\tred"
           - "all\tAll remote and local review models\tgreen"
           - "gpt-5.4\tGPT-5.4 - default, deeper review\tgreen"
           - "gpt-5.2-chat-latest\tGPT-5.2 Instant - fast\tcyan"
           - "gpt-5.2\tGPT-5.2 Thinking\tdim"
-          - "gemini\tGemini 3 Flash Preview\tblue"
           - "claude\tClaude Sonnet 4.5 (cross-check)\tyellow"
           - "opus\tClaude Opus 4.5 (high quality)\tred"
         focus:
           - "general\tGeneral code review\tgreen"
+          - "review\tRigorous PR review\tmagenta"
+          - "verification\tAdversarial evidence verification\tred"
           - "security\tSecurity vulnerabilities\tred"
           - "performance\tPerformance issues\tyellow"
           - "architecture\tArchitectural concerns\tblue"
           - "testing\tQA and test coverage\tcyan"
+        reasoning-effort:
+          - "none\tNo reasoning effort\tdim"
+          - "minimal\tMinimal reasoning\tblue"
+          - "low\tLow reasoning\tblue"
+          - "medium\tMedium reasoning\tgreen"
+          - "high\tHigh reasoning\tyellow"
+          - "xhigh\tExtra-high reasoning (Sol; DeepSeek maps to max)\tred"
+          - "max\tMaximum reasoning\tred"
 
   - name: stabilize
-    description: Multi-model stabilization (GPT + Gemini critique loops)
+    description: Multi-model stabilization (GPT + DeepSeek critique loops)
     flags:
       --rounds=: Number of critique/revise rounds
       --mode=: Specialized planning mode
@@ -107,8 +122,8 @@ commands:
     description: Check access to configured providers/models
     flags:
       --gpt=: GPT model to test
+      --deepseek=: DeepSeek model to test
       --claude=: Claude model to test
-      --gemini=: Gemini model to test
       --local=: Local Ollama model to test
       --lmstudio=: LM Studio model to test
       --timeout=: Per-model timeout in seconds
