@@ -6,7 +6,6 @@ Billing rates as of December 2025.
 
 Caching Support:
 - OpenAI: Supports prompt caching with 90% discount on cached input tokens
-- Google Gemini: Supports context caching with 75% discount on cached input tokens
 - Anthropic Claude: Supports prompt caching with 90% discount on cached input tokens
 
 Pricing is loaded from pricing.py. This module adds caching discount calculations.
@@ -18,7 +17,6 @@ from claude_mm.pricing import get_model_pricing
 # Caching discounts by provider
 CACHE_DISCOUNTS = {
     "openai": 0.90,  # 90% discount on cached input
-    "google": 0.75,  # 75% discount on cached input
     "anthropic": 0.90,  # 90% discount on cached input
 }
 

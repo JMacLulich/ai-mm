@@ -17,7 +17,7 @@ def test_exact_user_pricing_preserves_embedded_metadata(tmp_path, monkeypatch):
         yaml.safe_dump(
             {
                 "openai": {"gpt-5.4": {"input": 2.0, "output": 16.0}},
-                "google": {},
+                "deepseek": {},
                 "anthropic": {},
                 "_metadata": {"last_updated": "2026-01-01T00:00:00", "version": "1.0.0"},
             }
@@ -37,7 +37,7 @@ def test_embedded_exact_match_beats_stale_provider_fallback(tmp_path, monkeypatc
         yaml.safe_dump(
             {
                 "openai": {"gpt-5.2": {"input": 1.5, "output": 12.0}},
-                "google": {},
+                "deepseek": {},
                 "anthropic": {},
                 "_metadata": {"last_updated": "2026-01-01T00:00:00", "version": "1.0.0"},
             }
@@ -68,3 +68,24 @@ def test_deepseek_v4_pro_embedded_pricing(tmp_path, monkeypatch):
         "input": 0.435,
         "output": 0.87,
     }
+
+
+def test_loaded_pricing_discards_removed_google_provider(tmp_path, monkeypatch):
+    pricing_file = tmp_path / "pricing.yaml"
+    pricing_file.write_text(
+        yaml.safe_dump(
+            {
+                "openai": {},
+                "deepseek": {},
+                "anthropic": {},
+                "google": {"gemini": {"input": 1.0, "output": 2.0}},
+                "_metadata": {"last_updated": "2026-01-01T00:00:00", "version": "1.0.0"},
+            }
+        )
+    )
+    monkeypatch.setattr(pricing, "get_pricing_file", lambda: pricing_file)
+
+    loaded = pricing.load_pricing()
+
+    assert "google" not in loaded
+    assert all("gemini" not in model for models in loaded.values() for model in models)

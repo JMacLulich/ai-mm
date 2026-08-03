@@ -38,21 +38,6 @@ OPENAI_ALIASES = {
     "gpt-5.2-instant": "gpt-5.2-chat-latest",  # Legacy alias (incorrect API name)
 }
 
-# Google Gemini Models
-GEMINI_MODELS = {
-    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",  # Latest Pro (preview API ID)
-    "gemini-3-pro-preview": "gemini-3-pro-preview",  # Latest Pro - biggest model
-    "gemini-2.5-pro": "gemini-2.5-pro",  # Stable Pro
-    "gemini-3-flash-preview": "gemini-3-flash-preview",  # Fast, cheap
-    "gemini-2.0-flash-exp": "gemini-2.0-flash-exp",  # Experimental
-}
-
-GEMINI_ALIASES = {
-    "gemini": "gemini-3.1-pro-preview",  # Default to latest available 3.1 Pro
-    "gemini-pro": "gemini-3.1-pro-preview",  # Alias to latest available 3.1 Pro
-    "gemini-flash": "gemini-3-flash-preview",
-}
-
 # DeepSeek Models (OpenAI-compatible API)
 DEEPSEEK_MODELS = {
     "deepseek-v4-pro": "deepseek-v4-pro",  # Maximum-quality reasoning model
@@ -175,15 +160,12 @@ def get_provider_for_model(model: str) -> Optional[str]:
         model: Model name (can be alias or API name)
 
     Returns:
-        Provider name ("openai", "google", "anthropic", "ollama") or None if unknown
+        Provider name ("openai", "deepseek", "anthropic", "alibaba", "ollama", "lmstudio")
+        or None if unknown
     """
     # Check OpenAI
     if model in OPENAI_MODELS or model in OPENAI_ALIASES:
         return "openai"
-
-    # Check Gemini
-    if model in GEMINI_MODELS or model in GEMINI_ALIASES:
-        return "google"
 
     # Check DeepSeek
     if model in DEEPSEEK_MODELS or model in DEEPSEEK_ALIASES:
@@ -231,8 +213,8 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
         ("openai", "gpt-5.4")
         >>> normalize_model_name("gpt-5.2-instant")
         ("openai", "gpt-5.2-chat-latest")
-        >>> normalize_model_name("gemini")
-        ("google", "gemini-3.1-pro-preview")
+        >>> normalize_model_name("deepseek")
+        ("deepseek", "deepseek-v4-pro")
         >>> normalize_model_name("ollama")
         ("ollama", "qwen2.5:14b-instruct")
     """
@@ -241,12 +223,6 @@ def normalize_model_name(model: str) -> Tuple[str, str]:
         return "openai", OPENAI_MODELS[model]
     if model in OPENAI_ALIASES:
         return "openai", OPENAI_MODELS[OPENAI_ALIASES[model]]
-
-    # Try Gemini
-    if model in GEMINI_MODELS:
-        return "google", GEMINI_MODELS[model]
-    if model in GEMINI_ALIASES:
-        return "google", GEMINI_MODELS[GEMINI_ALIASES[model]]
 
     # Try DeepSeek
     if model in DEEPSEEK_MODELS:
@@ -304,12 +280,6 @@ def get_model_display_name(api_model: str) -> str:
         "gpt-5.2-pro": "GPT-5.2 Pro",
         "gpt-4o": "GPT-4o",
         "gpt-4": "GPT-4",
-        # Gemini
-        "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
-        "gemini-3-pro-preview": "Gemini 3 Pro",
-        "gemini-2.5-pro": "Gemini 2.5 Pro",
-        "gemini-3-flash-preview": "Gemini 3 Flash",
-        "gemini-2.0-flash-exp": "Gemini 2.0 Flash (Experimental)",
         # DeepSeek
         "deepseek-v4-pro": "DeepSeek V4 Pro",
         "deepseek-v4-flash": "DeepSeek V4 Flash",
@@ -390,37 +360,6 @@ def get_model_characteristics(api_model: str) -> Dict[str, Any]:
             "cost_tier": "high",
             "context_window": 8192,
             "description": "Legacy GPT-4 model",
-        },
-        # Gemini
-        "gemini-3.1-pro-preview": {
-            "speed": "medium",
-            "cost_tier": "medium",
-            "context_window": 1000000,
-            "description": "Latest Gemini 3.1 Pro available via Google API",
-        },
-        "gemini-3-pro-preview": {
-            "speed": "medium",
-            "cost_tier": "medium",
-            "context_window": 1000000,
-            "description": "Latest Gemini 3 Pro - biggest model",
-        },
-        "gemini-2.5-pro": {
-            "speed": "medium",
-            "cost_tier": "medium",
-            "context_window": 1000000,
-            "description": "Stable Gemini 2.5 Pro",
-        },
-        "gemini-3-flash-preview": {
-            "speed": "fast",
-            "cost_tier": "low",
-            "context_window": 1000000,
-            "description": "Fast, cheap Gemini model",
-        },
-        "gemini-2.0-flash-exp": {
-            "speed": "fast",
-            "cost_tier": "low",
-            "context_window": 1000000,
-            "description": "Experimental Gemini 2.0",
         },
         # DeepSeek
         "deepseek-v4-pro": {
@@ -537,7 +476,6 @@ def list_all_models() -> Dict[str, list]:
     """
     return {
         "openai": list(OPENAI_MODELS.keys()),
-        "google": list(GEMINI_MODELS.keys()),
         "deepseek": list(DEEPSEEK_MODELS.keys()),
         "anthropic": list(CLAUDE_MODELS.keys()),
         "alibaba": list(ALIBABA_MODELS.keys()),
@@ -555,7 +493,6 @@ def list_all_aliases() -> Dict[str, str]:
     """
     all_aliases = {}
     all_aliases.update(OPENAI_ALIASES)
-    all_aliases.update(GEMINI_ALIASES)
     all_aliases.update(DEEPSEEK_ALIASES)
     all_aliases.update(CLAUDE_ALIASES)
     all_aliases.update(ALIBABA_ALIASES)

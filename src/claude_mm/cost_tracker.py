@@ -6,19 +6,16 @@ Billing rates as of December 2025.
 
 Caching Support:
 - OpenAI: Supports prompt caching with 90% discount on cached input tokens
-- Google Gemini: Supports context caching with 75% discount on cached input tokens
 - Anthropic Claude: Supports prompt caching with 90% discount on cached input tokens
 
 Pricing Accuracy:
 - OpenAI GPT-5.4: Estimated at GPT-5.2 parity until pricing is refreshed
-- Google Gemini: Confirmed from official pricing page
 - Anthropic Claude: Estimated pricing (verify with Anthropic for exact rates)
 """
 
 # API pricing (per 1M tokens)
 # Sources:
 # - OpenAI: https://openai.com/api/pricing/
-# - Google: https://ai.google.dev/pricing
 # - Anthropic: https://www.anthropic.com/pricing (Claude prices are approximate)
 
 # Base pricing data
@@ -48,20 +45,6 @@ _GPT_PRO_PRICING = {
     "output": 70.00,  # $70.00 per 1M tokens (estimated 5x standard)
     "cached": 0.875,  # 90% discount on cached input
     "estimated": True,  # Pro pricing is estimated
-}
-
-_GEMINI_FLASH_PRICING = {
-    "input": 0.075,  # $0.075 per 1M tokens (Google Gemini 3 Flash)
-    "output": 0.30,  # $0.30 per 1M tokens
-    "cached": 0.01875,  # 75% discount on cached input
-    "estimated": False,
-}
-
-_GEMINI_PRO_PRICING = {
-    "input": 1.25,
-    "output": 10.00,
-    "cached": 0.3125,  # 75% discount on cached input
-    "estimated": True,
 }
 
 _DEEPSEEK_PRO_PRICING = {
@@ -94,7 +77,7 @@ _CLAUDE_OPUS_PRICING = {
 
 # Model aliases with pricing
 # Note: Each model gets an independent copy to prevent shared mutable state
-# Note: This dict accepts all user-facing model names (including aliases like "gpt", "gemini")
+# Note: This dict accepts all user-facing model names (including aliases like "gpt", "deepseek")
 # bin/ai normalizes these to API model names before calling APIs, but cost_tracker
 # accepts any alias for standalone cost estimation
 PRICING = {
@@ -106,13 +89,6 @@ PRICING = {
     "gpt-5": _GPT_54_PRICING.copy(),
     "gpt": _GPT_54_PRICING.copy(),
     "gpt-5.2-pro": _GPT_PRO_PRICING.copy(),
-    # Gemini models
-    "gemini": _GEMINI_PRO_PRICING.copy(),
-    "gemini-pro": _GEMINI_PRO_PRICING.copy(),
-    "gemini-3.1-pro-preview": _GEMINI_PRO_PRICING.copy(),
-    "gemini-3-pro-preview": _GEMINI_PRO_PRICING.copy(),
-    "gemini-2.5-pro": _GEMINI_PRO_PRICING.copy(),
-    "gemini-3-flash-preview": _GEMINI_FLASH_PRICING.copy(),
     # DeepSeek models
     "deepseek": _DEEPSEEK_PRO_PRICING.copy(),
     "deepseek-pro": _DEEPSEEK_PRO_PRICING.copy(),

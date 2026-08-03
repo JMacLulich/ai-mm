@@ -23,14 +23,6 @@ DEFAULT_PRICING = {
         "gpt-4o": {"input": 2.50, "output": 10.00},
         "gpt-4": {"input": 30.00, "output": 60.00},
     },
-    "google": {
-        "gemini-3.1-pro-preview": {"input": 1.25, "output": 10.00},
-        "gemini-3-pro-preview": {"input": 1.25, "output": 10.00},
-        "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
-        "gemini-3-flash-preview": {"input": 0.075, "output": 0.30},
-        "gemini-2.0-flash-exp": {"input": 0.075, "output": 0.30},
-        "gemini-pro": {"input": 0.50, "output": 1.50},
-    },
     "deepseek": {
         "deepseek-v4-pro": {"input": 0.435, "output": 0.87},
         "deepseek-v4-flash": {"input": 0.14, "output": 0.28},
@@ -51,6 +43,11 @@ DEFAULT_PRICING = {
         "source": "embedded_defaults",
     },
 }
+
+
+def _filter_supported_providers(pricing: Dict) -> Dict:
+    """Discard stale pricing entries for providers this package no longer supports."""
+    return {provider: data for provider, data in pricing.items() if provider in DEFAULT_PRICING}
 
 
 def get_pricing_file() -> Path:
@@ -75,7 +72,7 @@ def load_pricing() -> Dict:
             with open(pricing_file) as f:
                 pricing = yaml.safe_load(f)
                 if pricing and "_metadata" in pricing:
-                    return pricing
+                    return _filter_supported_providers(pricing)
         except Exception as e:
             print(f"Warning: Failed to load pricing file: {e}")
             print("Using embedded defaults")
@@ -106,7 +103,7 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
     Get pricing for a specific model.
 
     Args:
-        provider: Provider name (openai, deepseek, google, anthropic, alibaba)
+        provider: Provider name (openai, deepseek, anthropic, alibaba)
         model: Model identifier
 
     Returns:
@@ -131,14 +128,6 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
         for fallback in ["gpt-5.4", "gpt-5.2", "gpt-5.2-chat-latest"]:
             if fallback in provider_pricing:
                 return provider_pricing[fallback]
-    elif provider == "google":
-        for fallback in [
-            "gemini-3.1-pro-preview",
-            "gemini-3-pro-preview",
-            "gemini-3-flash-preview",
-        ]:
-            if fallback in provider_pricing:
-                return provider_pricing[fallback]
     elif provider == "deepseek":
         for fallback in ["deepseek-v4-pro", "deepseek-v4-flash"]:
             if fallback in provider_pricing:
@@ -155,14 +144,6 @@ def get_model_pricing(provider: str, model: str) -> Optional[Dict]:
     # Fall back to embedded defaults when user pricing file is stale
     if provider == "openai":
         for fallback in ["gpt-5.4", "gpt-5.2", "gpt-5.2-chat-latest"]:
-            if fallback in default_provider_pricing:
-                return default_provider_pricing[fallback]
-    elif provider == "google":
-        for fallback in [
-            "gemini-3.1-pro-preview",
-            "gemini-3-pro-preview",
-            "gemini-3-flash-preview",
-        ]:
             if fallback in default_provider_pricing:
                 return default_provider_pricing[fallback]
     elif provider == "deepseek":
@@ -215,13 +196,13 @@ def update_pricing_from_url(url: str) -> bool:
             }
 
             # Validate basic structure
-            required_providers = ["openai", "google", "anthropic"]
+            required_providers = ["openai", "deepseek", "anthropic"]
             if not all(p in new_pricing for p in required_providers):
                 print("Warning: Pricing data missing required providers")
                 return False
 
             # Save new pricing
-            save_pricing(new_pricing)
+            save_pricing(_filter_supported_providers(new_pricing))
             print(f"✓ Updated pricing from {url}")
             return True
 

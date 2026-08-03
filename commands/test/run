@@ -31,11 +31,7 @@ main() {
             "$python" -m pytest tests/unit -v
             ;;
         integration)
-            echo "==> Integration tests only (requires API keys)"
-            if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ -z "${GOOGLE_AI_API_KEY:-}" ]]; then
-                echo "⚠️  Warning: API keys not set, integration tests will be skipped"
-                echo "   Set OPENAI_API_KEY and GOOGLE_AI_API_KEY to run integration tests"
-            fi
+            echo "==> Integration tests only"
             "$python" -m pytest tests/integration -v
             ;;
         all|*)

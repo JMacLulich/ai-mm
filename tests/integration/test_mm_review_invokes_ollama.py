@@ -39,7 +39,7 @@ def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="claude_mm.api"):
         result = api.review(
             prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-            models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
+            models=["gpt-5.4", "deepseek", "claude-opus-4-6", "ollama"],
             focus="architecture",
             use_cache=False,
         )
@@ -75,7 +75,7 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
     class StubProvider:
         def complete(self, prompt, model, system_prompt=None):
             # All external models fail with overload
-            if model in {"gpt-5.4", "gemini-3.1-pro-preview", "claude-opus-4-6"}:
+            if model in {"gpt-5.4", "deepseek-v4-pro", "claude-opus-4-6"}:
                 raise Exception("503 Service Unavailable")
 
             if model == "lmstudio" or model == "qwen/qwen3.6-35b-a3b":
@@ -101,7 +101,7 @@ def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch,
     with caplog.at_level(logging.INFO, logger="claude_mm.api"):
         result = api.review(
             prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-            models=["gpt-5.4", "gemini", "claude-opus-4-6"],
+            models=["gpt-5.4", "deepseek", "claude-opus-4-6"],
             focus="architecture",
             use_cache=False,
         )
@@ -118,7 +118,7 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
         def complete(self, prompt, model, system_prompt=None):
             if model in {
                 "gpt-5.4",
-                "gemini-3.1-pro-preview",
+                "deepseek-v4-pro",
                 "claude-opus-4-6",
                 "qwen2.5:14b-instruct",
             }:
@@ -147,7 +147,7 @@ def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, ca
     with caplog.at_level(logging.INFO, logger="claude_mm.api"):
         result = api.review(
             prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-            models=["gpt-5.4", "gemini", "claude-opus-4-6", "ollama"],
+            models=["gpt-5.4", "deepseek", "claude-opus-4-6", "ollama"],
             focus="architecture",
             use_cache=False,
         )
@@ -184,12 +184,12 @@ def test_mm_review_aggregates_results_when_one_model_times_out(monkeypatch):
 
     result = api.review(
         prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.4", "gemini"],
+        models=["gpt-5.4", "deepseek"],
         focus="architecture",
         use_cache=False,
         per_model_timeout=0.05,
     )
 
-    assert "gemini" in result.results
+    assert "deepseek" in result.results
     assert "gpt-5.4" not in result.results
     assert result.errors["gpt-5.4"].startswith("timed out after")

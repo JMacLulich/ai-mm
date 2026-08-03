@@ -41,10 +41,6 @@ def test_estimate_cost():
     cost_standard = estimate_cost("gpt-5.4", input_tokens, output_tokens)
     assert cost_standard >= cost_instant
 
-    # Gemini (cheapest)
-    cost_gemini = estimate_cost("gemini-3-flash-preview", input_tokens, output_tokens)
-    assert cost_gemini < cost_instant
-
     cost_deepseek = estimate_cost("deepseek-v4-pro", input_tokens, output_tokens)
     assert 0 < cost_deepseek < cost_instant
 

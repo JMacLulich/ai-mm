@@ -23,7 +23,7 @@ The test suite has been scaffolded but needs fixes:
 1. Fix test API mismatches
 2. Ensure cache tests use proper temp directories
 3. Add integration tests for actual API calls (with mocking)
-4. Add tests for providers (openai, google, anthropic)
+4. Add tests for providers (openai, deepseek, anthropic)
 5. Add tests for api.py module
 
 ## Status

@@ -14,8 +14,6 @@ from claude_mm.models import (
     CLAUDE_MODELS,
     DEEPSEEK_ALIASES,
     DEEPSEEK_MODELS,
-    GEMINI_ALIASES,
-    GEMINI_MODELS,
     LMSTUDIO_ALIASES,
     LMSTUDIO_MODELS,
     MODEL_GROUPS,
@@ -48,16 +46,6 @@ class TestModelRegistries:
         assert "gpt" in OPENAI_ALIASES
         assert "gpt-5.2-instant" in OPENAI_ALIASES  # Backward compatibility
         assert OPENAI_ALIASES["sol-5.6"] == "gpt-5.6-sol"
-
-    def test_gemini_models_exist(self):
-        """Gemini models registry is not empty."""
-        assert len(GEMINI_MODELS) > 0
-        assert "gemini-3.1-pro-preview" in GEMINI_MODELS
-
-    def test_gemini_aliases_exist(self):
-        """Gemini aliases are properly defined."""
-        assert len(GEMINI_ALIASES) > 0
-        assert "gemini" in GEMINI_ALIASES
 
     def test_deepseek_models_and_aliases_exist(self):
         assert DEEPSEEK_MODELS["deepseek-v4-pro"] == "deepseek-v4-pro"
@@ -122,14 +110,6 @@ class TestGetProviderForModel:
         """OpenAI aliases resolve to 'openai' provider."""
         assert get_provider_for_model("gpt") == "openai"
         assert get_provider_for_model("gpt-5.2-instant") == "openai"
-
-    def test_gemini_models(self):
-        """Gemini models resolve to 'google' provider."""
-        assert get_provider_for_model("gemini-3.1-pro-preview") == "google"
-
-    def test_gemini_aliases(self):
-        """Gemini aliases resolve to 'google' provider."""
-        assert get_provider_for_model("gemini") == "google"
 
     def test_deepseek_models_and_aliases(self):
         assert get_provider_for_model("deepseek-v4-pro") == "deepseek"
@@ -222,22 +202,6 @@ class TestNormalizeModelName:
         assert provider == "openai"
         assert model == "gpt-5.2-chat-latest"
 
-    def test_gemini_direct_models(self):
-        """Gemini direct model names normalize correctly."""
-        provider, model = normalize_model_name("gemini-3.1-pro-preview")
-        assert provider == "google"
-        assert model == "gemini-3.1-pro-preview"
-
-    def test_gemini_aliases(self):
-        """Gemini aliases resolve to API names."""
-        provider, model = normalize_model_name("gemini")
-        assert provider == "google"
-        assert model == "gemini-3.1-pro-preview"
-
-        provider, model = normalize_model_name("gemini-flash")
-        assert provider == "google"
-        assert model == "gemini-3-flash-preview"
-
     def test_claude_direct_models(self):
         """Claude direct model names normalize correctly."""
         provider, model = normalize_model_name("claude-opus-4-6")
@@ -305,10 +269,6 @@ class TestGetModelDisplayName:
         assert get_model_display_name("gpt-5.2-pro") == "GPT-5.2 Pro"
         assert get_model_display_name("gpt-5.6-sol") == "GPT-5.6 Sol"
 
-    def test_gemini_display_names(self):
-        """Gemini models have proper display names."""
-        assert get_model_display_name("gemini-3.1-pro-preview") == "Gemini 3.1 Pro Preview"
-
     def test_deepseek_display_names(self):
         assert get_model_display_name("deepseek-v4-pro") == "DeepSeek V4 Pro"
         assert get_model_display_name("deepseek-v4-flash") == "DeepSeek V4 Flash"
@@ -369,13 +329,6 @@ class TestGetModelCharacteristics:
         assert chars["cost_tier"] == "high"
         assert chars["context_window"] == 128000
 
-    def test_gemini_characteristics(self):
-        """Gemini has correct characteristics."""
-        chars = get_model_characteristics("gemini-3.1-pro-preview")
-        assert chars["speed"] == "medium"
-        assert chars["cost_tier"] == "medium"
-        assert chars["context_window"] == 1000000
-
     def test_deepseek_characteristics(self):
         chars = get_model_characteristics("deepseek-v4-pro")
         assert chars["context_window"] == 1000000
@@ -419,7 +372,7 @@ class TestListFunctions:
         """list_all_models returns all models by provider."""
         models = list_all_models()
         assert "openai" in models
-        assert "google" in models
+        assert "google" not in models
         assert "deepseek" in models
         assert "anthropic" in models
         assert "alibaba" in models
@@ -432,7 +385,7 @@ class TestListFunctions:
         aliases = list_all_aliases()
         assert "gpt" in aliases
         assert "gpt-5.2-instant" in aliases  # Backward compatibility
-        assert "gemini" in aliases
+        assert "gemini" not in aliases
         assert aliases["deepseek-pro"] == "deepseek-v4-pro"
         assert "claude" in aliases
         assert "alibaba" in aliases
