@@ -26,6 +26,7 @@ Examples:
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -70,6 +71,7 @@ from claude_mm.providers.deepseek import DeepSeekProvider  # noqa: E402
 from claude_mm.providers.lmstudio import LMStudioProvider  # noqa: E402
 from claude_mm.providers.ollama import OllamaProvider  # noqa: E402
 from claude_mm.providers.openai import OpenAIProvider  # noqa: E402
+from claude_mm.rig_assist import assist as rig_assist  # noqa: E402
 from claude_mm.timeouts import supports_signal_timeout, timeout_guard  # noqa: E402
 from claude_mm.usage import get_usage_stats  # noqa: E402
 
@@ -377,6 +379,27 @@ def cmd_stabilize(args):
         sys.exit(1)
 
 
+def cmd_rig_assist(args):
+    """Run schema-constrained local-Qwen/DeepSeek planning or recovery assistance."""
+    try:
+        if args.input == "-":
+            source = sys.stdin.read()
+        else:
+            source = Path(args.input).read_text(encoding="utf-8")
+        packet = json.loads(source)
+        result = rig_assist(packet, mode=args.mode, model=args.model)
+        print(
+            json.dumps(
+                result,
+                separators=(",", ":") if args.compact else None,
+                indent=None if args.compact else 2,
+            )
+        )
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_cache(args):
     """Handle cache management commands."""
     if args.cache_command == "stats":
@@ -630,6 +653,19 @@ def main():
     )
     plan_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
 
+    rig_parser = subparsers.add_parser(
+        "rig-assist",
+        help="Schema-constrained local-Qwen/DeepSeek rig planning or recovery advice",
+    )
+    rig_parser.add_argument("--mode", choices=["plan", "recovery"], required=True)
+    rig_parser.add_argument("--input", default="-", help="JSON packet path or - for stdin")
+    rig_parser.add_argument(
+        "--model",
+        choices=["qwen36-local", "deepseek", "deepseek-pro", "deepseek-pro-xhigh"],
+        default="qwen36-local",
+    )
+    rig_parser.add_argument("--compact", action="store_true", help="Emit compact JSON")
+
     # Stabilize command
     stab_parser = subparsers.add_parser("stabilize", help="Multi-round plan stabilization")
     stab_parser.add_argument("goal", nargs="?", help="What to plan")
@@ -722,6 +758,8 @@ def main():
         cmd_review(args)
     elif args.command == "plan":
         cmd_plan(args)
+    elif args.command == "rig-assist":
+        cmd_rig_assist(args)
     elif args.command == "stabilize":
         cmd_stabilize(args)
     elif args.command == "cache":

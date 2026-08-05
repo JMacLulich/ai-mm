@@ -1,5 +1,6 @@
 """LM Studio provider implementation (OpenAI-compatible local endpoint)."""
 
+import json
 import os
 from decimal import Decimal
 from typing import Optional
@@ -82,6 +83,18 @@ class LMStudioProvider(Provider):
                 )
 
             text = self._extract_text(response)
+            if not text.strip() and kwargs.get("response_format", {}).get("type") == "json_schema":
+                # Qwen 3.6 currently places schema-constrained JSON in
+                # `reasoning_content` while leaving `content` empty. Accept
+                # only a complete JSON value here; never expose arbitrary
+                # reasoning prose as the assistant result.
+                reasoning = getattr(response.choices[0].message, "reasoning_content", "") or ""
+                try:
+                    structured = json.loads(reasoning)
+                except (json.JSONDecodeError, TypeError):
+                    structured = None
+                if isinstance(structured, (dict, list)):
+                    text = json.dumps(structured, separators=(",", ":"))
             if not text.strip():
                 hint = "Check LMSTUDIO_BASE_URL and model behavior for empty/think-only responses."
                 raise ProviderError(f"LM Studio returned empty response content. {hint}")
