@@ -99,28 +99,67 @@ main() {
         echo "  ✓ ai.yaml"
     fi
 
-    # Install mm-review skill to ~/.claude
-    if [[ -d "$ROOT/claude/skills/mm-review" ]]; then
-        echo "🔧 Installing mm-review skill..."
-        # Remove existing symlink if present
-        if [[ -L "$HOME/.claude/skills/mm-review" ]]; then
-            rm "$HOME/.claude/skills/mm-review"
-        fi
-        mkdir -p "$HOME/.claude/skills/mm-review"
-        cp "$ROOT/claude/skills/mm-review/SKILL.md" "$HOME/.claude/skills/mm-review/"
-        echo "  ✓ Skill installed to ~/.claude/skills/mm-review/"
-    fi
-
-    # Install mm-review-loop skill to ~/.claude
-    if [[ -d "$ROOT/claude/skills/mm-review-loop" ]]; then
-        echo "🔧 Installing mm-review-loop skill..."
-        if [[ -L "$HOME/.claude/skills/mm-review-loop" ]]; then
-            rm "$HOME/.claude/skills/mm-review-loop"
-        fi
-        mkdir -p "$HOME/.claude/skills/mm-review-loop"
-        cp "$ROOT/claude/skills/mm-review-loop/SKILL.md" "$HOME/.claude/skills/mm-review-loop/"
-        echo "  ✓ Skill installed to ~/.claude/skills/mm-review-loop/"
-    fi
+    # Install the canonical review skills for both Claude and the shared
+    # ~/.agents discovery root used by Codex.  Keeping only the Claude copy
+    # left Codex on an obsolete LM Studio/Ollama-era skill indefinitely.
+    local skill_name skills_root skill_source skill_target managed_marker
+    local skill_tmp marker_tmp
+    for skill_name in mm-review mm-review-loop; do
+        skill_source="$ROOT/claude/skills/$skill_name"
+        [[ -d "$skill_source" ]] || continue
+        echo "🔧 Installing $skill_name skill..."
+        for skills_root in "$HOME/.claude/skills" "$HOME/.agents/skills"; do
+            skill_target="$skills_root/$skill_name"
+            if [[ -L "$skill_target" ]]; then
+                # unlink removes the directory entry itself and never follows
+                # the link into another owner's target directory.
+                unlink "$skill_target"
+            elif [[ -e "$skill_target" && ! -d "$skill_target" ]]; then
+                echo "  ⚠ Skipping unmanaged non-directory: ${skill_target/#$HOME/\~}" >&2
+                continue
+            elif [[ -d "$skill_target" ]]; then
+                managed_marker="$skill_target/.ai-mm-managed"
+                if [[ -L "$managed_marker" || -L "$skill_target/SKILL.md" ]]; then
+                    echo "  ⚠ Skipping skill with nested symlink: ${skill_target/#$HOME/\~}" >&2
+                    continue
+                elif [[ -f "$managed_marker" ]]; then
+                    if [[ "$(<"$managed_marker")" != "managed-by=ai-mm" ]]; then
+                        echo "  ⚠ Skipping skill with invalid ownership marker: ${skill_target/#$HOME/\~}" >&2
+                        continue
+                    fi
+                else
+                    # Safely adopt historical ai-mm installs, which contained
+                    # exactly SKILL.md. Any additional entry means another
+                    # owner may have customized the skill, so leave it alone.
+                    if ! (
+                        shopt -s nullglob dotglob
+                        entries=("$skill_target"/*)
+                        (( ${#entries[@]} == 0 )) || {
+                            (( ${#entries[@]} == 1 )) &&
+                            [[ "${entries[0]}" == "$skill_target/SKILL.md" ]] &&
+                            [[ -f "${entries[0]}" && ! -L "${entries[0]}" ]]
+                        }
+                    ); then
+                        echo "  ⚠ Skipping unmanaged customized skill: ${skill_target/#$HOME/\~}" >&2
+                        continue
+                    fi
+                fi
+            fi
+            mkdir -p "$skill_target"
+            # Build regular files with O_EXCL-backed mktemp paths, then rename
+            # them over the directory entries. This cannot follow a stale or
+            # concurrently introduced SKILL.md/marker symlink into another
+            # owner's file.
+            skill_tmp="$(mktemp "$skill_target/.SKILL.md.XXXXXX")"
+            marker_tmp="$(mktemp "$skill_target/.ai-mm-managed.XXXXXX")"
+            cp "$skill_source/SKILL.md" "$skill_tmp"
+            printf 'managed-by=ai-mm\n' > "$marker_tmp"
+            chmod 0644 "$skill_tmp" "$marker_tmp"
+            mv -f "$skill_tmp" "$skill_target/SKILL.md"
+            mv -f "$marker_tmp" "$skill_target/.ai-mm-managed"
+            echo "  ✓ Skill installed to ${skill_target/#$HOME/\~}/"
+        done
+    done
 
     local config_dir="$HOME/.config/ai-mm"
     mkdir -p "$config_dir"

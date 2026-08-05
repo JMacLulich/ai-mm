@@ -59,6 +59,13 @@ Build the review command from the target files, e.g.:
 cat src/foo/api.py src/foo/cache.py | ai review --model mm --focus review --per-model-timeout 600
 ```
 
+For a local-only loop, use the semantic selector rather than an LM Studio,
+Ollama, endpoint, or concrete local model name:
+
+```bash
+cat src/foo/api.py src/foo/cache.py | ai review --model local --focus review
+```
+
 For an opt-in maximum-reasoning profile, use:
 
 ```bash

@@ -79,6 +79,13 @@ For the normal broad pass, execute the mm review:
 git diff | ai review --model mm --focus {chosen_focus}
 ```
 
+For a local-only review, use the semantic local selector. Do not hard-code LM
+Studio, Ollama, an endpoint URL, or a local model ID:
+
+```bash
+git diff | ai review --model local --focus {chosen_focus}
+```
+
 For an evidence-first DeepSeek verification pass, use the stable provider route:
 
 ```bash
@@ -337,6 +344,7 @@ This skill integrates with the separate `ai-mm` repository:
 - `ai review --model deepseek --focus verification` uses the stable DeepSeek
   route; the router currently selects Flash.
 - `ai review --model stage:review` requests the normal review stage.
+- `ai review --model local` requests the router-owned local-only profile.
 - `ai review --model all` runs all semantic council seats in parallel.
 
 ## Troubleshooting
