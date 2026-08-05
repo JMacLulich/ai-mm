@@ -130,12 +130,7 @@ class TestBuildMenuRows:
         keys = {}
         rows = _build_menu_rows(keys)
         provider_names = [r["provider"] for r in rows if not r["is_exit"]]
-        assert "openai" in provider_names
-        assert "deepseek" in provider_names
-        assert "anthropic" in provider_names
-        assert "alibaba" in provider_names
-        assert "ollama" in provider_names
-        assert "lmstudio" in provider_names
+        assert "llm-router" in provider_names
         assert "review timeout" in provider_names
 
     def test_includes_exit_row(self):
@@ -154,64 +149,32 @@ class TestBuildMenuRows:
                 assert row["has_key"] is False
 
     def test_detects_present_keys(self):
-        keys = {"OPENAI_API_KEY": "sk-test-12345678"}
+        keys = {"LLM_ROUTER_BASE_URL": "http://127.0.0.1:4000/v1"}
         rows = _build_menu_rows(keys)
-        openai_row = next(r for r in rows if r["provider"] == "openai")
-        assert openai_row["has_key"] is True
+        router_row = next(r for r in rows if r["provider"] == "llm-router")
+        assert router_row["has_key"] is True
 
-    def test_masks_present_keys(self):
-        keys = {"OPENAI_API_KEY": "sk-proj-1234567890abcd"}
+    def test_router_url_not_masked(self):
+        keys = {"LLM_ROUTER_BASE_URL": "http://127.0.0.1:4000/v1"}
         rows = _build_menu_rows(keys)
-        openai_row = next(r for r in rows if r["provider"] == "openai")
-        assert "sk-proj-...abcd" in openai_row["masked"]
-
-    def test_ollama_url_not_masked(self):
-        keys = {"OLLAMA_BASE_URL": "http://localhost:11434"}
-        rows = _build_menu_rows(keys)
-        ollama_row = next(r for r in rows if r["provider"] == "ollama")
-        assert ollama_row["masked"] == "http://localhost:11434"
-
-    def test_lmstudio_url_not_masked(self):
-        keys = {"LMSTUDIO_BASE_URL": "http://127.0.0.1:1234/v1"}
-        rows = _build_menu_rows(keys)
-        lmstudio_row = next(r for r in rows if r["provider"] == "lmstudio")
-        assert lmstudio_row["masked"] == "http://127.0.0.1:1234/v1"
-
-    def test_alibaba_key_is_masked(self):
-        keys = {"DASHSCOPE_API_KEY": "dashscope-1234567890abcd"}
-        rows = _build_menu_rows(keys)
-        alibaba_row = next(r for r in rows if r["provider"] == "alibaba")
-        assert alibaba_row["masked"] == "dashscop...abcd"
+        router_row = next(r for r in rows if r["provider"] == "llm-router")
+        assert router_row["masked"] == "http://127.0.0.1:4000/v1"
 
 
 class TestPromptForValue:
-    def test_ollama_prompt_suggests_localhost_default(self, monkeypatch):
+    def test_router_prompt_suggests_localhost_default(self, monkeypatch):
         monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
         monkeypatch.setattr(sys, "stdout", io.StringIO())
 
         value = _prompt_for_value(
-            label="ollama",
-            field_key="OLLAMA_BASE_URL",
-            description="Local LLM endpoint URL",
+            label="llm-router",
+            field_key="LLM_ROUTER_BASE_URL",
+            description="Rust routing service endpoint",
             prefix="http(s)://...",
             current_value="",
         )
 
-        assert value == "http://localhost:11434"
-
-    def test_lmstudio_prompt_suggests_localhost_default(self, monkeypatch):
-        monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
-        monkeypatch.setattr(sys, "stdout", io.StringIO())
-
-        value = _prompt_for_value(
-            label="lmstudio",
-            field_key="LMSTUDIO_BASE_URL",
-            description="LM Studio OpenAI-compatible endpoint",
-            prefix="http(s)://...",
-            current_value="",
-        )
-
-        assert value == "http://127.0.0.1:1234/v1"
+        assert value == "http://127.0.0.1:4000/v1"
 
     def test_timeout_prompt_suggests_default(self, monkeypatch):
         monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
@@ -223,10 +186,10 @@ class TestPromptForValue:
             description="Per-model timeout for multi-model reviews",
             prefix="seconds",
             current_value="",
-            suggested_value="60",
+            suggested_value="600",
         )
 
-        assert value == "60"
+        assert value == "600"
 
 
 class TestReadMenuKey:
@@ -262,31 +225,26 @@ class TestNextMenuIndex:
 
 
 class TestApiKeyValidation:
-    def test_deepseek_uses_flash_with_thinking_disabled(self, monkeypatch):
+    def test_router_health_is_used_without_llm_call(self, monkeypatch):
         captured = {}
 
-        class StubDeepSeekProvider:
-            def __init__(self, api_key):
-                captured["api_key"] = api_key
+        class StubRouterProvider:
+            def __init__(self, base_url):
+                captured["base_url"] = base_url
 
-            def complete(self, **kwargs):
-                captured["request"] = kwargs
+            def health_check(self):
+                return {"entries": [{"status": "up"}, {"status": "down"}]}
 
         monkeypatch.setattr(
-            "claude_mm.providers.deepseek.DeepSeekProvider",
-            StubDeepSeekProvider,
+            "claude_mm.providers.router.LLMRouterProvider",
+            StubRouterProvider,
         )
 
-        assert _test_api_key("deepseek", "test-key") == (True, "Valid")
-        assert captured == {
-            "api_key": "test-key",
-            "request": {
-                "prompt": "Reply with OK",
-                "model": "deepseek-v4-flash",
-                "max_tokens": 5,
-                "reasoning_effort": "none",
-            },
-        }
+        assert _test_api_key("llm-router", "http://router/v1") == (
+            True,
+            "Running (1 attempts available)",
+        )
+        assert captured == {"base_url": "http://router/v1"}
 
 
 class TestSaveAndLoadKeys:
@@ -294,15 +252,11 @@ class TestSaveAndLoadKeys:
         monkeypatch.setattr("claude_mm.env.CONFIG_DIR", tmp_path / "ai-mm")
         monkeypatch.setattr("claude_mm.env.ENV_FILE", tmp_path / "ai-mm" / "env")
 
-        keys = {
-            "OPENAI_API_KEY": "sk-test-12345678",
-            "DEEPSEEK_API_KEY": "test-deepseek-key",
-        }
+        keys = {"LLM_ROUTER_BASE_URL": "http://127.0.0.1:4000/v1"}
         save_keys(keys)
 
         loaded = load_existing_keys()
-        assert loaded["OPENAI_API_KEY"] == "sk-test-12345678"
-        assert loaded["DEEPSEEK_API_KEY"] == "test-deepseek-key"
+        assert loaded["LLM_ROUTER_BASE_URL"] == "http://127.0.0.1:4000/v1"
 
     def test_load_missing_file(self, tmp_path, monkeypatch):
         monkeypatch.setattr("claude_mm.env.ENV_FILE", tmp_path / "nonexistent" / "env")
@@ -314,7 +268,7 @@ class TestSaveAndLoadKeys:
         monkeypatch.setattr("claude_mm.env.CONFIG_DIR", config_dir)
         monkeypatch.setattr("claude_mm.env.ENV_FILE", config_dir / "env")
 
-        keys = {"OPENAI_API_KEY": "test-key"}
+        keys = {"LLM_ROUTER_BASE_URL": "http://127.0.0.1:4000/v1"}
         save_keys(keys)
 
         assert config_dir.exists()
@@ -323,28 +277,28 @@ class TestSaveAndLoadKeys:
         env_file = tmp_path / "env"
         monkeypatch.setattr("claude_mm.env.ENV_FILE", env_file)
 
-        env_file.write_text('export OPENAI_API_KEY="sk-test-1234"\n')
+        env_file.write_text('export LLM_ROUTER_BASE_URL="http://router/v1"\n')
 
         loaded = load_existing_keys()
-        assert loaded["OPENAI_API_KEY"] == "sk-test-1234"
+        assert loaded["LLM_ROUTER_BASE_URL"] == "http://router/v1"
 
     def test_load_handles_single_quotes(self, tmp_path, monkeypatch):
         env_file = tmp_path / "env"
         monkeypatch.setattr("claude_mm.env.ENV_FILE", env_file)
 
-        env_file.write_text("export OPENAI_API_KEY='sk-test-1234'\n")
+        env_file.write_text("export LLM_ROUTER_BASE_URL='http://router/v1'\n")
 
         loaded = load_existing_keys()
-        assert loaded["OPENAI_API_KEY"] == "sk-test-1234"
+        assert loaded["LLM_ROUTER_BASE_URL"] == "http://router/v1"
 
     def test_load_ignores_comments(self, tmp_path, monkeypatch):
         env_file = tmp_path / "env"
         monkeypatch.setattr("claude_mm.env.ENV_FILE", env_file)
 
-        env_file.write_text("# This is a comment\nexport OPENAI_API_KEY='real-key'\n")
+        env_file.write_text("# This is a comment\nexport LLM_ROUTER_BASE_URL='http://router/v1'\n")
 
         loaded = load_existing_keys()
-        assert loaded == {"OPENAI_API_KEY": "real-key"}
+        assert loaded == {"LLM_ROUTER_BASE_URL": "http://router/v1"}
 
 
 class TestSaveAndLoadSettings:
@@ -352,7 +306,7 @@ class TestSaveAndLoadSettings:
         monkeypatch.setattr("claude_mm.config.CONFIG_FILE", tmp_path / "config.yaml")
 
         loaded = load_existing_settings()
-        assert loaded["review_per_model_timeout_seconds"] == "60"
+        assert loaded["review_per_model_timeout_seconds"] == "600"
 
     def test_save_and_load_settings_roundtrip(self, tmp_path, monkeypatch):
         monkeypatch.setattr("claude_mm.config.CONFIG_FILE", tmp_path / "config.yaml")

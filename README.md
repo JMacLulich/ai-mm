@@ -1,251 +1,188 @@
-# AI MM - Multi-Model Code Review Tool
+# AI MM
 
-Get code reviews from GPT, DeepSeek, Claude, Alibaba Cloud Qwen, and local LLMs - in parallel or individually.
+AI-assisted code review, planning, and stabilization through the host-level Rust
+[`llm-router`](../llm-router/README.md) service.
 
-## Why AI MM?
+`ai-mm` owns review orchestration and prompts. It does **not** choose API models,
+construct vendor clients, hold provider credentials, calculate vendor pricing, or
+implement fallback cascades. Every LLM call goes to `llm-router` as a semantic
+`stage:` or `profile:` intent.
 
-- **Broader feedback**: Different models catch different issues. Run them in parallel, get consolidated reviews.
-- **Works offline**: Use Ollama with Qwen or Llama for free, private reviews on your machine.
-- **Cost-aware**: Every API call tracked, cached responses save money.
-- **Architecture-focused**: Reviews check DRY, Single Responsibility, and Least Astonishment principles.
-- **Rigorous PR review mode**: `--focus review` enforces staff-level multi-pass risk analysis.
-- **Adversarial verification**: DeepSeek V4 Pro can run at max thinking with an evidence-first verification prompt.
+## Architecture
 
-## Installation
+```text
+ai review / ai plan / rig-assist
+        |
+        | stage:review | stage:audit | profile:local_only | ...
+        v
+LLMRouterProvider
+        |
+        | POST http://127.0.0.1:4000/v1/chat/completions
+        v
+Rust llm-router
+        |
+        | profile resolution, model/provider selection, retries,
+        | fallbacks, request quirks, cost and provenance
+        v
+provider adapter selected by llm-router
+```
+
+Responses without the router provenance block are rejected. This prevents a proxy,
+misconfigured endpoint, or direct vendor service from silently bypassing routing policy.
+
+## Prerequisite
+
+Install and run the router from `~/Development/llm-router`:
 
 ```bash
-git clone https://github.com/JMacLulich/ai-mm
-cd ai-mm
+command -v llm-router
+llm-router --version
+curl -fsS http://127.0.0.1:4000/health
+```
+
+Provider credentials and exact model policy belong in
+`~/.config/llm-router/`, not in the `ai-mm` environment.
+
+## Install
+
+```bash
 ./run install
 ```
 
-### What Gets Installed
+This installs the `ai` command and its Python environment under `~/.local/`.
 
-1. Python virtual environment at `~/.local/venvs/ai/`
-2. The `ai` command in `~/.local/bin/ai`
-3. Shell completions (if Carapace is installed)
-4. Interactive API key configuration
-
-### API Keys
-
-Configure during installation or later with:
+## Review
 
 ```bash
-ai config  # Interactive TUI for managing keys
-ai configure  # Alias for interactive TUI
-```
+# Router-owned normal review
+git diff | ai review --model stage:review
 
-**Supported providers:**
-- **OpenAI** - GPT-5.6 Sol, GPT-5.4, and GPT-5.2 models
-- **DeepSeek** - DeepSeek V4 Pro and Flash (set `DEEPSEEK_API_KEY`)
-- **Anthropic** - Claude Opus 4.6
-- **Alibaba Cloud DashScope** - Qwen 3.6 cloud (set `DASHSCOPE_API_KEY`)
-- **Ollama** - Local LLMs (set `OLLAMA_BASE_URL`)
-- **LM Studio** - Local OpenAI-compatible Qwen 3.6 (set `LMSTUDIO_BASE_URL`)
+# Stable DeepSeek provider selector; llm-router currently chooses Flash
+git diff | ai review --model deepseek --focus verification
 
-Keys stored at `~/.config/ai-mm/env` with secure permissions.
-Review defaults are stored in `~/.config/ai/config.yaml`.
-Alibaba Cloud uses DashScope's OpenAI-compatible default endpoint. Override with
-`DASHSCOPE_BASE_URL` only if your account requires a custom endpoint.
-DeepSeek uses `https://api.deepseek.com` by default. Override with
-`DEEPSEEK_BASE_URL` only for a compatible proxy or gateway.
-
-## Usage
-
-```bash
-# Parallel multimode review (GPT + DeepSeek + Claude + local Ollama + LM Studio)
-git diff | ai review --model mm
-
-# Fast models only (cheaper)
-git diff | ai review --model fast
-
-# Single model
-git diff | ai review --model gpt --focus security
-git diff | ai review --model deepseek --focus performance
-
-# DeepSeek V4 Pro at API-level max thinking with adversarial verification
-git diff | ai review --model deepseek-pro-xhigh --focus verification
-
-# Local LLM (free, offline)
-git diff | ai review --model ollama
-
-# Qwen 3.6: uses Alibaba Cloud if DASHSCOPE_API_KEY is configured,
-# otherwise falls back to local LM Studio
-git diff | ai review --model qwen3.6
-
-# GPT-5.6 Sol at xhigh reasoning effort
-git diff | ai review --model sol-5.6 --reasoning-effort xhigh --focus review
-
-# Convenience profile for the same Sol xhigh review
-git diff | ai review --model sol-xhigh --focus review
-
-# Architecture review
-git diff | ai review --model mm --focus architecture
-
-# Rigorous staff-level PR review format
+# Parallel semantic council seats; each seat is independently routed
 git diff | ai review --model mm --focus review
 
-# Planning
-ai plan "Add user authentication"
-ai plan "Design resilient background jobs" --depth deep --rounds 3 --strict
-ai plan "Refactor billing" --model mm --context auto --output-format json
+# Router-owned local-only policy
+git diff | ai review --model local
 
-# Multi-round stabilized planning
-ai stabilize "Design rate limiting" --rounds 2
-
-# Check costs
-ai usage --week
-
-# Manage cache
-ai cache stats
-ai cache clear
+# Explicit router profile
+git diff | ai review --model profile:kimi --reasoning-effort max
 ```
 
-### Review Focus Areas
+`--model` is retained as the CLI option name for compatibility, but its value is a
+router selector, not an API model ID. Supported forms are:
 
-Use `--focus` to bias what the models prioritize:
+- `stage:<intent>` — let the router resolve the stage;
+- `profile:<name>` — explicitly request a router-owned profile;
+- `deepseek` — stable provider-level review selector routed as `stage:audit`;
+- `local`, `kimi`, and `commercial` — convenience profile selectors;
+- `mm`, `all`, `fast`, `local`, and `max` — orchestration groups.
 
-- `review` - Rigorous staff-level PR review with structured multi-pass output
-- `verification` - Evidence-first adversarial checking with explicit falsification attempts
-- `general` - Broad code review across correctness, quality, and risk
-- `security` - Vulnerabilities, validation gaps, auth/authz issues
-- `performance` - Efficiency, query patterns, allocations, and hot paths
-- `architecture` - Design quality, boundaries, coupling, and maintainability
-- `testing` - Coverage gaps, edge cases, determinism, and test quality
+Exact API model names are rejected.
 
-### GPT-5.6 Sol reasoning effort
+### Review groups
 
-`sol-5.6` resolves to the OpenAI API model `gpt-5.6-sol`. Use
-`--reasoning-effort xhigh` when you want the deepest supported reasoning pass.
-The dedicated `sol-xhigh` profile applies that setting automatically. Sol is
-intentionally not part of the default `mm` group because it is a premium model;
-invoke it explicitly when the review warrants the additional cost.
+| Group | Router intents |
+| --- | --- |
+| `mm` | `stage:review`, `stage:audit`, `stage:adversarial` |
+| `all` | `mm` plus `stage:architect` |
+| `fast` | `stage:review` with a `fast` effort hint |
+| `local` | `profile:local_only` |
+| `max` | `profile:kimi` with a `max` effort hint |
 
-### DeepSeek max-thinking verification
+The group controls parallel review seats only. It never names providers or fallback
+models; the router remains authoritative for each seat.
 
-`deepseek-pro-xhigh` resolves to `deepseek-v4-pro`, enables thinking, and maps the
-shared `xhigh` setting to DeepSeek's `max` reasoning effort. Pair it with
-`--focus verification` to require evidence, falsification attempts, and explicit
-VERIFIED/DISPROVED/UNVERIFIED verdicts. The standard `mm`, `all`, and `fast`
-groups now use DeepSeek as the default independent reasoning provider. The max
-profile uses a 300-second default orchestration and HTTP timeout and disables
-hidden SDK retries so a timed-out expensive request is not silently submitted again.
+### Focus
 
-### Iterative review loop
+Use `--focus` to tune the review prompt:
 
-For an iterative pass that fixes findings and reruns review until only
-low-priority items remain, use the bundled `mm-review-loop` Claude skill or run
-the commands directly:
+- `review`
+- `verification`
+- `security`
+- `performance`
+- `architecture`
+- `testing`
+- `general`
+
+### Timeouts
+
+`--per-model-timeout` is a client deadline for one complete router task. The default
+is 600 seconds so the router has time to execute its bounded cascade. Individual
+attempt timeouts remain router-owned.
+
+`--local-model-timeout` is accepted only for backward compatibility and no longer
+changes routing or provider timeouts.
+
+## Planning
 
 ```bash
-# Broad multi-model loop
-git diff | ai review --model mm --focus review
-
-# Deep adversarial Sol loop
-git diff | ai review --model sol-xhigh --focus review --no-cache
-
-# Evidence-first DeepSeek max-thinking loop
-git diff | ai review --model deepseek-pro-xhigh --focus verification --no-cache
+ai plan "Refactor billing" --model stage:planning --output-format json
+ai plan "Refactor billing" --model mm --depth deep --rounds 3 --strict
 ```
 
-The loop treats critical, high, and valid medium findings as work to fix in the
-current round. It stops when remaining findings are low-priority or clearly
-non-actionable. Use `--no-cache` when you require a fresh model pass; otherwise
-the cache is safe across reasoning levels because the effort setting is part of
-the cache key.
+The planning council uses semantic planning, architecture, and adversarial stages.
+Structured response validation and synthesis remain in `ai-mm`; execution routing
+remains in Rust.
 
-## Local LLM Support
-
-Use Ollama or LM Studio for free, private code reviews:
+## Rig assistance
 
 ```bash
-# Install Ollama
-brew install ollama
-ollama pull qwen2.5:14b
+ai rig-assist --mode plan --model local --input packet.json
+ai rig-assist --mode recovery --model deepseek --input packet.json
+```
 
-# Configure Ollama endpoint for ai-mm
+Rig assistance accepts only `local` and `deepseek`. Returned JSON remains
+schema-constrained and advisory-only.
+
+## Configuration and health
+
+The only `ai-mm` connection setting is:
+
+```bash
+export LLM_ROUTER_BASE_URL="http://127.0.0.1:4000/v1"
+```
+
+The default already points there. Use either command to inspect the connection:
+
+```bash
 ai config
-ai configure
-
-# Review with local model
-git diff | ai review --model ollama
-
-# Review with local Qwen 3.6 via LM Studio
-git diff | ai review --model lmstudio
+ai check-models
 ```
 
-No API key needed, but `OLLAMA_BASE_URL` must be configured. Works offline.
-Your code never leaves your machine.
+`ai check-models` calls the router health endpoint; it does not send a paid test
+completion.
 
-For Qwen 3.6, `ai review --model qwen3.6` selects Alibaba Cloud DashScope when
-`DASHSCOPE_API_KEY` is configured. If DashScope is not configured, it uses the
-local LM Studio model `qwen/qwen3.6-35b-a3b`.
+Optional settings:
+
+```yaml
+default_models:
+  plan: stage:planning
+  review: stage:review
+review_per_model_timeout_seconds: 600
+cache_ttl_hours: 24
+```
+
+## Router provenance and cost
+
+`llm-router` returns the resolved profile, provider, served model, escalation state,
+and cost source. `ai-mm` exposes that metadata on `ReviewResult.metadata` and records
+the router-reported cost. There is no second pricing table or cost estimate in this
+repository.
 
 ## Development
 
 ```bash
-./run lint        # Check code quality
-./run lint fix    # Auto-fix issues
-./run test        # Run all tests
-./run test unit   # Unit tests only
-./run install     # Reinstall after changes
+./run test
+./run lint
 ```
 
-## Architecture
+Architecture tests fail if feature code imports direct vendor providers, contains API
+model selection, or expands the config surface beyond the router connection.
 
-```
-ai-mm/
-├── src/claude_mm/
-│   ├── api.py              # Review and plan functions
-│   ├── cache.py            # Response caching
-│   ├── costs.py            # Cost estimation
-│   ├── config_tui.py       # Interactive config UI
-│   ├── env.py              # API key management
-│   ├── prompts.py          # System prompts
-│   ├── models.py           # Model registry
-│   └── providers/          # OpenAI, DeepSeek, Anthropic, Alibaba, Ollama, LM Studio
-├── bin/ai                  # CLI entry point
-├── tests/                  # Unit and integration tests
-└── commands/               # ./run commands
-```
+## Migration notes
 
-## Configuration
-
-```bash
-# Interactive config UI
-ai config
-ai configure
-
-# Manual setup
-mkdir -p ~/.config/ai-mm
-cat > ~/.config/ai-mm/env <<'EOF'
-export OPENAI_API_KEY="sk-..."
-export DEEPSEEK_API_KEY="..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export DASHSCOPE_API_KEY="..."
-export OLLAMA_BASE_URL="http://localhost:11434"
-export LMSTUDIO_BASE_URL="http://127.0.0.1:1234/v1"
-EOF
-chmod 600 ~/.config/ai-mm/env
-
-mkdir -p ~/.config/ai
-cat > ~/.config/ai/config.yaml <<'EOF'
-review_per_model_timeout_seconds: 60
-EOF
-```
-
-When editing Ollama in `ai config`, the endpoint is shown in plain text (not masked).
-If missing, the UI suggests `http://localhost:11434`.
-`ai config` also lets you edit the default per-model review timeout.
-
-## Design Principles
-
-- **Single Responsibility**: Each module does one thing well
-- **Thread-Safe**: Atomic writes, file locking for parallel operations
-- **Observable**: All API calls logged with costs
-- **Fail-Safe**: Auto-retry with exponential backoff
-- **Fast**: Parallel execution, response caching
-
-## License
-
-MIT
+Version 0.8 removes direct OpenAI, Anthropic, DeepSeek, Alibaba, Ollama, and LM Studio
+adapters from `ai-mm`. It also removes local provider fallback logic and exact model
+groups. Configure those providers and their cascades in `llm-router` instead.

@@ -1,24 +1,10 @@
-"""Unit tests for models module."""
-
-import sys
-from pathlib import Path
+"""Tests for semantic route normalization."""
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-
 from claude_mm.models import (
-    ALIBABA_ALIASES,
-    ALIBABA_MODELS,
-    CLAUDE_ALIASES,
-    CLAUDE_MODELS,
-    DEEPSEEK_ALIASES,
-    DEEPSEEK_MODELS,
-    LMSTUDIO_ALIASES,
-    LMSTUDIO_MODELS,
     MODEL_GROUPS,
-    OPENAI_ALIASES,
-    OPENAI_MODELS,
+    ROUTER_PROVIDER,
     get_model_characteristics,
     get_model_display_name,
     get_provider_for_model,
@@ -28,390 +14,50 @@ from claude_mm.models import (
 )
 
 
-class TestModelRegistries:
-    """Test model registries are properly defined."""
+def test_bare_stage_normalizes_to_router_intent() -> None:
+    assert normalize_model_name("review") == (ROUTER_PROVIDER, "stage:review")
 
-    def test_openai_models_exist(self):
-        """OpenAI models registry is not empty."""
-        assert len(OPENAI_MODELS) > 0
-        assert "gpt-5.4" in OPENAI_MODELS
-        assert "gpt-5.2-chat-latest" in OPENAI_MODELS
-        assert "gpt-5.2" in OPENAI_MODELS
-        assert "gpt-5.2-pro" in OPENAI_MODELS
-        assert OPENAI_MODELS["gpt-5.6-sol"] == "gpt-5.6-sol"
 
-    def test_openai_aliases_exist(self):
-        """OpenAI aliases are properly defined."""
-        assert len(OPENAI_ALIASES) > 0
-        assert "gpt" in OPENAI_ALIASES
-        assert "gpt-5.2-instant" in OPENAI_ALIASES  # Backward compatibility
-        assert OPENAI_ALIASES["sol-5.6"] == "gpt-5.6-sol"
+def test_explicit_stage_and_profile_pass_through() -> None:
+    assert normalize_model_name("stage:audit") == (ROUTER_PROVIDER, "stage:audit")
+    assert normalize_model_name("profile:kimi") == (ROUTER_PROVIDER, "profile:kimi")
 
-    def test_deepseek_models_and_aliases_exist(self):
-        assert DEEPSEEK_MODELS["deepseek-v4-pro"] == "deepseek-v4-pro"
-        assert DEEPSEEK_MODELS["deepseek-v4-flash"] == "deepseek-v4-flash"
-        assert DEEPSEEK_ALIASES["deepseek-pro"] == "deepseek-v4-pro"
 
-    def test_claude_models_exist(self):
-        """Claude models registry is not empty."""
-        assert len(CLAUDE_MODELS) > 0
-        assert "claude-opus-4-6" in CLAUDE_MODELS
+def test_deepseek_is_a_provider_level_selector_for_router_owned_flash_profile() -> None:
+    assert normalize_model_name("deepseek") == (ROUTER_PROVIDER, "stage:audit")
 
-    def test_claude_aliases_exist(self):
-        """Claude aliases are properly defined."""
-        assert len(CLAUDE_ALIASES) > 0
-        assert "claude" in CLAUDE_ALIASES
 
-    def test_alibaba_models_exist(self):
-        """Alibaba Cloud DashScope models registry is not empty."""
-        assert len(ALIBABA_MODELS) > 0
-        assert "qwen3.6-35b-a3b" in ALIBABA_MODELS
+def test_direct_api_model_names_are_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown LLM route"):
+        normalize_model_name("vendor/model-id")
+    with pytest.raises(ValueError, match="Unknown LLM route"):
+        normalize_model_name("vendor-exact-version")
 
-    def test_alibaba_aliases_exist(self):
-        """Alibaba Cloud DashScope aliases are properly defined."""
-        assert len(ALIBABA_ALIASES) > 0
-        assert "alibaba" in ALIBABA_ALIASES
 
-    def test_mm_group_includes_local_providers(self):
-        """Multimode reviews include both local providers."""
-        assert "mm" in MODEL_GROUPS
-        assert "ollama" in MODEL_GROUPS["mm"]
-        assert "lmstudio" in MODEL_GROUPS["mm"]
-        assert MODEL_GROUPS["sol-xhigh"] == ["sol-5.6"]
-        assert MODEL_GROUPS["deepseek-pro-xhigh"] == ["deepseek-pro"]
-        for group in ("mm", "all", "fast"):
-            assert all("gemini" not in model for model in MODEL_GROUPS[group])
-        assert "deepseek-pro" in MODEL_GROUPS["mm"]
-        assert "deepseek-flash" in MODEL_GROUPS["fast"]
+def test_unknown_or_empty_selector_is_rejected() -> None:
+    assert get_provider_for_model("made-up-model") is None
+    with pytest.raises(ValueError, match="non-empty"):
+        normalize_model_name("")
 
-    def test_lmstudio_models_exist(self):
-        """LM Studio models registry is not empty."""
-        assert len(LMSTUDIO_MODELS) > 0
-        assert "qwen/qwen3.6-35b-a3b" in LMSTUDIO_MODELS
 
-    def test_lmstudio_aliases_exist(self):
-        """LM Studio aliases are properly defined."""
-        assert len(LMSTUDIO_ALIASES) > 0
-        assert "lmstudio" in LMSTUDIO_ALIASES
+def test_all_groups_contain_only_semantic_intents() -> None:
+    assert set(MODEL_GROUPS) == {"all", "fast", "local", "max", "mm"}
+    for routes in MODEL_GROUPS.values():
+        assert routes
+        assert all(route.startswith(("stage:", "profile:")) for route in routes)
 
 
-class TestGetProviderForModel:
-    """Test provider detection from model names."""
+def test_model_metadata_describes_dynamic_router_ownership() -> None:
+    characteristics = get_model_characteristics("stage:review")
+    assert characteristics["provider"] == ROUTER_PROVIDER
+    assert characteristics["routing_owner"] == "llm-router"
+    assert characteristics["dynamic"] is True
+    assert get_model_display_name("profile:kimi") == "llm-router profile kimi"
 
-    def test_openai_models(self):
-        """OpenAI models resolve to 'openai' provider."""
-        assert get_provider_for_model("gpt-5.4") == "openai"
-        assert get_provider_for_model("gpt-5.2") == "openai"
-        assert get_provider_for_model("gpt-5.2-chat-latest") == "openai"
-        assert get_provider_for_model("gpt-5.2-pro") == "openai"
-        assert get_provider_for_model("sol-5.6") == "openai"
 
-    def test_openai_aliases(self):
-        """OpenAI aliases resolve to 'openai' provider."""
-        assert get_provider_for_model("gpt") == "openai"
-        assert get_provider_for_model("gpt-5.2-instant") == "openai"
-
-    def test_deepseek_models_and_aliases(self):
-        assert get_provider_for_model("deepseek-v4-pro") == "deepseek"
-        assert get_provider_for_model("deepseek-pro") == "deepseek"
-        assert normalize_model_name("deepseek") == ("deepseek", "deepseek-v4-pro")
-
-    def test_claude_models(self):
-        """Claude models resolve to 'anthropic' provider."""
-        assert get_provider_for_model("claude-opus-4-6") == "anthropic"
-
-    def test_claude_aliases(self):
-        """Claude aliases resolve to 'anthropic' provider."""
-        assert get_provider_for_model("claude") == "anthropic"
-
-    def test_alibaba_models(self):
-        """Alibaba models resolve to 'alibaba' provider."""
-        assert get_provider_for_model("qwen3.6-35b-a3b") == "alibaba"
-
-    def test_alibaba_aliases(self):
-        """Alibaba aliases resolve to 'alibaba' provider."""
-        assert get_provider_for_model("alibaba") == "alibaba"
-        assert get_provider_for_model("dashscope") == "alibaba"
-
-    def test_unknown_model(self):
-        """Unknown models return None."""
-        assert get_provider_for_model("unknown-model") is None
-        assert get_provider_for_model("gpt-99") is None
-
-    def test_lmstudio_models(self):
-        """LM Studio models resolve to 'lmstudio' provider."""
-        assert get_provider_for_model("qwen/qwen3.6-35b-a3b") == "lmstudio"
-
-    def test_lmstudio_aliases(self):
-        """LM Studio aliases resolve to 'lmstudio' provider."""
-        assert get_provider_for_model("lmstudio") == "lmstudio"
-
-    def test_qwen36_alias_prefers_cloud_when_configured(self, monkeypatch):
-        """Qwen 3.6 alias uses Alibaba Cloud when DashScope is configured."""
-        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
-        monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
-
-        assert get_provider_for_model("qwen3.6") == "alibaba"
-
-    def test_qwen36_alias_uses_local_when_cloud_missing(self, monkeypatch):
-        """Qwen 3.6 alias uses local LM Studio when cloud is not configured."""
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALIBABA_API_KEY", raising=False)
-        monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
-
-        assert get_provider_for_model("qwen3.6") == "lmstudio"
-
-
-class TestNormalizeModelName:
-    """Test model name normalization."""
-
-    def test_openai_direct_models(self):
-        """OpenAI direct model names normalize correctly."""
-        provider, model = normalize_model_name("gpt-5.4")
-        assert provider == "openai"
-        assert model == "gpt-5.4"
-
-        provider, model = normalize_model_name("gpt-5.2")
-        assert provider == "openai"
-        assert model == "gpt-5.2"
-
-        provider, model = normalize_model_name("gpt-5.2-chat-latest")
-        assert provider == "openai"
-        assert model == "gpt-5.2-chat-latest"
-
-        provider, model = normalize_model_name("sol-5.6")
-        assert provider == "openai"
-        assert model == "gpt-5.6-sol"
-
-        provider, model = normalize_model_name("gpt-5.2-pro")
-        assert provider == "openai"
-        assert model == "gpt-5.2-pro"
-
-    def test_openai_aliases(self):
-        """OpenAI aliases resolve to API names."""
-        provider, model = normalize_model_name("gpt")
-        assert provider == "openai"
-        assert model == "gpt-5.4"  # Default GPT model
-
-        # CRITICAL: Backward compatibility for old name
-        provider, model = normalize_model_name("gpt-5.2-instant")
-        assert provider == "openai"
-        assert model == "gpt-5.2-chat-latest"
-
-        provider, model = normalize_model_name("gpt-instant")
-        assert provider == "openai"
-        assert model == "gpt-5.2-chat-latest"
-
-    def test_claude_direct_models(self):
-        """Claude direct model names normalize correctly."""
-        provider, model = normalize_model_name("claude-opus-4-6")
-        assert provider == "anthropic"
-        assert model == "claude-opus-4-6"
-
-    def test_claude_aliases(self):
-        """Claude aliases resolve to API names."""
-        provider, model = normalize_model_name("claude")
-        assert provider == "anthropic"
-        assert model == "claude-opus-4-6"
-
-    def test_alibaba_aliases(self):
-        """Alibaba aliases resolve to API names."""
-        provider, model = normalize_model_name("alibaba")
-        assert provider == "alibaba"
-        assert model == "qwen3.6-35b-a3b"
-
-        provider, model = normalize_model_name("qwen3.6-cloud")
-        assert provider == "alibaba"
-        assert model == "qwen3.6-35b-a3b"
-
-    def test_unknown_model_raises(self):
-        """Unknown models raise ValueError."""
-        with pytest.raises(ValueError, match="Unknown model"):
-            normalize_model_name("unknown-model")
-
-        with pytest.raises(ValueError, match="Unknown model"):
-            normalize_model_name("gpt-99")
-
-    def test_lmstudio_alias(self):
-        """LM Studio alias resolves correctly."""
-        provider, model = normalize_model_name("lmstudio")
-        assert provider == "lmstudio"
-        assert model == "qwen/qwen3.6-35b-a3b"
-
-    def test_qwen36_alias_prefers_cloud_when_configured(self, monkeypatch):
-        """Qwen 3.6 alias resolves to cloud when DashScope is configured."""
-        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
-        monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
-
-        provider, model = normalize_model_name("qwen3.6")
-        assert provider == "alibaba"
-        assert model == "qwen3.6-35b-a3b"
-
-    def test_qwen36_alias_uses_local_when_cloud_missing(self, monkeypatch):
-        """Qwen 3.6 alias resolves to local LM Studio when cloud is not configured."""
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALIBABA_API_KEY", raising=False)
-        monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
-
-        provider, model = normalize_model_name("qwen3.6")
-        assert provider == "lmstudio"
-        assert model == "qwen/qwen3.6-35b-a3b"
-
-
-class TestGetModelDisplayName:
-    """Test human-readable display names."""
-
-    def test_openai_display_names(self):
-        """OpenAI models have proper display names."""
-        assert get_model_display_name("gpt-5.4") == "GPT-5.4"
-        assert get_model_display_name("gpt-5.2-chat-latest") == "GPT-5.2 Instant"
-        assert get_model_display_name("gpt-5.2") == "GPT-5.2 Thinking"
-        assert get_model_display_name("gpt-5.2-pro") == "GPT-5.2 Pro"
-        assert get_model_display_name("gpt-5.6-sol") == "GPT-5.6 Sol"
-
-    def test_deepseek_display_names(self):
-        assert get_model_display_name("deepseek-v4-pro") == "DeepSeek V4 Pro"
-        assert get_model_display_name("deepseek-v4-flash") == "DeepSeek V4 Flash"
-
-    def test_claude_display_names(self):
-        """Claude models have proper display names."""
-        assert get_model_display_name("claude-opus-4-6") == "Claude Opus 4.6"
-
-    def test_unknown_model_returns_original(self):
-        """Unknown models return the original name."""
-        assert get_model_display_name("unknown-model") == "unknown-model"
-
-    def test_lmstudio_display_name(self):
-        """LM Studio model has proper display name."""
-        assert get_model_display_name("qwen/qwen3.6-35b-a3b") == "Qwen 3.6 35B A3B (LM Studio)"
-
-    def test_alibaba_display_name(self):
-        """Alibaba Cloud model has proper display name."""
-        assert get_model_display_name("qwen3.6-35b-a3b") == "Qwen 3.6 35B A3B (Alibaba Cloud)"
-
-
-class TestGetModelCharacteristics:
-    """Test model characteristics metadata."""
-
-    def test_openai_5_4_characteristics(self):
-        """GPT-5.4 has correct characteristics."""
-        chars = get_model_characteristics("gpt-5.4")
-        assert chars["speed"] == "medium"
-        assert chars["cost_tier"] == "medium"
-        assert chars["context_window"] == 128000
-
-    def test_openai_sol_characteristics(self):
-        """GPT-5.6 Sol exposes xhigh reasoning metadata and its large context."""
-        chars = get_model_characteristics("gpt-5.6-sol")
-        assert chars["cost_tier"] == "very_high"
-        assert chars["context_window"] == 1050000
-        assert "xhigh" in chars["reasoning_efforts"]
-
-    def test_openai_instant_characteristics(self):
-        """GPT-5.2 Instant has correct characteristics."""
-        chars = get_model_characteristics("gpt-5.2-chat-latest")
-        assert chars["speed"] == "fast"
-        assert chars["cost_tier"] == "low"
-        assert chars["context_window"] == 128000
-        assert "description" in chars
-
-    def test_openai_thinking_characteristics(self):
-        """GPT-5.2 Thinking has correct characteristics."""
-        chars = get_model_characteristics("gpt-5.2")
-        assert chars["speed"] == "medium"
-        assert chars["cost_tier"] == "medium"
-        assert chars["context_window"] == 128000
-
-    def test_openai_pro_characteristics(self):
-        """GPT-5.2 Pro has correct characteristics."""
-        chars = get_model_characteristics("gpt-5.2-pro")
-        assert chars["speed"] == "slow"
-        assert chars["cost_tier"] == "high"
-        assert chars["context_window"] == 128000
-
-    def test_deepseek_characteristics(self):
-        chars = get_model_characteristics("deepseek-v4-pro")
-        assert chars["context_window"] == 1000000
-        assert chars["max_output_tokens"] == 384000
-        assert chars["reasoning_efforts"] == ["high", "max"]
-
-    def test_claude_characteristics(self):
-        """Claude has correct characteristics."""
-        chars = get_model_characteristics("claude-opus-4-6")
-        assert chars["speed"] == "moderate"
-        assert chars["cost_tier"] == "high"
-        assert chars["context_window"] == 200000
-
-    def test_unknown_model_has_defaults(self):
-        """Unknown models get default characteristics."""
-        chars = get_model_characteristics("unknown-model")
-        assert chars["speed"] == "unknown"
-        assert chars["cost_tier"] == "unknown"
-        assert chars["context_window"] == 8192
-        assert chars["description"] == "Unknown model"
-
-    def test_lmstudio_characteristics(self):
-        """LM Studio model has correct characteristics."""
-        chars = get_model_characteristics("qwen/qwen3.6-35b-a3b")
-        assert chars["speed"] == "medium"
-        assert chars["cost_tier"] == "free"
-        assert chars["context_window"] == 128000
-
-    def test_alibaba_characteristics(self):
-        """Alibaba Cloud model has correct characteristics."""
-        chars = get_model_characteristics("qwen3.6-35b-a3b")
-        assert chars["speed"] == "medium"
-        assert chars["cost_tier"] == "medium"
-        assert chars["context_window"] == 128000
-
-
-class TestListFunctions:
-    """Test listing functions."""
-
-    def test_list_all_models(self):
-        """list_all_models returns all models by provider."""
-        models = list_all_models()
-        assert "openai" in models
-        assert "google" not in models
-        assert "deepseek" in models
-        assert "anthropic" in models
-        assert "alibaba" in models
-        assert "lmstudio" in models
-        assert isinstance(models["openai"], list)
-        assert len(models["openai"]) > 0
-
-    def test_list_all_aliases(self):
-        """list_all_aliases returns all aliases."""
-        aliases = list_all_aliases()
-        assert "gpt" in aliases
-        assert "gpt-5.2-instant" in aliases  # Backward compatibility
-        assert "gemini" not in aliases
-        assert aliases["deepseek-pro"] == "deepseek-v4-pro"
-        assert "claude" in aliases
-        assert "alibaba" in aliases
-        assert "qwen3.6" in aliases
-        assert "lmstudio" in aliases
-        assert isinstance(aliases, dict)
-
-
-class TestBackwardCompatibility:
-    """Test backward compatibility with old model names."""
-
-    def test_gpt_5_2_instant_alias(self):
-        """Old 'gpt-5.2-instant' name maps to correct API model."""
-        # This is the critical test for the issue reported
-        provider, model = normalize_model_name("gpt-5.2-instant")
-        assert provider == "openai"
-        assert model == "gpt-5.2-chat-latest"
-
-        # Verify it's recognized as OpenAI
-        assert get_provider_for_model("gpt-5.2-instant") == "openai"
-
-    def test_all_aliases_resolve(self):
-        """All defined aliases successfully resolve."""
-        all_aliases = list_all_aliases()
-        for alias, _ in all_aliases.items():
-            # Should not raise ValueError
-            provider, model = normalize_model_name(alias)
-            assert provider is not None
-            assert model is not None
+def test_operator_lists_have_no_api_model_ids() -> None:
+    models = list_all_models()
+    aliases = list_all_aliases()
+    assert set(models) == {ROUTER_PROVIDER}
+    assert "deepseek" in aliases
+    assert all(route.startswith(("stage:", "profile:")) for route in aliases.values())

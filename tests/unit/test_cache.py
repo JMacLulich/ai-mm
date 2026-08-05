@@ -42,9 +42,9 @@ def test_get_cache_key():
 
 def test_reasoning_effort_has_distinct_cache_variant():
     """Sol medium/high/xhigh responses must never share a cache entry."""
-    baseline = get_cache_key("gpt-5.6-sol", "prompt", "system")
+    baseline = get_cache_key("stage:audit", "prompt", "system")
     xhigh = get_cache_key(
-        "gpt-5.6-sol", "prompt", "system", cache_variant="reasoning_effort=xhigh"
+        "stage:audit", "prompt", "system", cache_variant="reasoning_effort=max"
     )
 
     assert baseline != xhigh

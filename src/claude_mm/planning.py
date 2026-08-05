@@ -20,7 +20,7 @@ from claude_mm.usage import log_api_call
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.72
 PLAN_MODEL_GROUPS = {
-    "mm": ["gpt-5.2", "deepseek-pro", "claude-opus-4-6"],
+    "mm": ["stage:planning", "stage:architect", "stage:adversarial"],
 }
 
 _PLAN_SCHEMA = {

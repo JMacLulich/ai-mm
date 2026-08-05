@@ -1,8 +1,3 @@
-"""
-Claude Multi-Model (MM) Tool
+"""Router-backed multi-seat code review, planning, and stabilization."""
 
-A CLI tool for multi-model AI code review, planning, and stabilization.
-Supports parallel execution of GPT + DeepSeek + Claude Opus for broader feedback.
-"""
-
-__version__ = "0.7.0"
+__version__ = "0.8.0"

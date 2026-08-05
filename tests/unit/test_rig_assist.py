@@ -73,23 +73,29 @@ def plan_response() -> dict:
     }
 
 
-def test_plan_assist_is_schema_constrained_and_deepseek_only(
+def test_plan_assist_is_schema_constrained_and_uses_deepseek_route(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class StubProvider:
         def complete(self, **kwargs):
-            assert kwargs["response_format"] == {"type": "json_object"}
-            assert kwargs["reasoning_effort"] == "xhigh"
+            assert kwargs["model"] == "stage:audit"
+            assert kwargs["response_format"]["type"] == "json_schema"
+            assert kwargs["temperature"] == 0.1
+            assert "reasoning_effort" not in kwargs
             return ProviderResponse(
                 text=json.dumps(plan_response()),
-                model="deepseek-v4-pro",
+                model="served-flash",
                 input_tokens=100,
                 output_tokens=100,
+                metadata={
+                    "provider": "deepseek",
+                    "profile": "commercial_compliant",
+                },
             )
 
     monkeypatch.setattr("claude_mm.rig_assist.get_provider", lambda name: StubProvider())
 
-    result = assist(plan_packet(), mode="plan", model="deepseek-pro-xhigh")
+    result = assist(plan_packet(), mode="plan", model="deepseek")
 
     assert result["decision"] == "PROPOSE"
     assert result["units"][0]["owner"] == "ANY"
@@ -99,26 +105,28 @@ def test_plan_assist_is_schema_constrained_and_deepseek_only(
         assist(plan_packet(), mode="plan", model="gpt")
 
 
-def test_plan_assist_defaults_to_free_local_qwen(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plan_assist_defaults_to_router_local_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     class StubProvider:
         def complete(self, **kwargs):
-            assert kwargs["model"] == "qwen/qwen3.6-35b-a3b"
+            assert kwargs["model"] == "profile:local_only"
             assert kwargs["temperature"] == 0.1
             assert kwargs["response_format"]["type"] == "json_schema"
             assert kwargs["response_format"]["json_schema"]["strict"] is True
             assert "reasoning_effort" not in kwargs
             return ProviderResponse(
                 text=json.dumps(plan_response()),
-                model="qwen/qwen3.6-35b-a3b",
+                model="served-local",
                 input_tokens=100,
                 output_tokens=100,
+                metadata={"provider": "ollama", "profile": "local_only"},
             )
 
     monkeypatch.setattr("claude_mm.rig_assist.get_provider", lambda name: StubProvider())
 
     result = assist(plan_packet(), mode="plan")
 
-    assert result["assistant"]["provider"] == "lmstudio"
+    assert result["assistant"]["provider"] == "ollama"
+    assert result["assistant"]["route"] == "profile:local_only"
     assert result["assistant"]["cost"] == 0.0
     assert result["escalation_recommended"] is False
 

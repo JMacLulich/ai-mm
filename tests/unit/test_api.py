@@ -1,122 +1,99 @@
-"""Unit tests for API default model behavior."""
+"""Unit tests for routed API defaults and request hints."""
 
 import asyncio
-import sys
 from decimal import Decimal
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+import pytest
 
 from claude_mm import api
 from claude_mm.providers.base import ProviderResponse
 
 
-def test_review_defaults_to_gpt_5_4(monkeypatch):
-    """Review uses GPT-5.4 when no model is provided."""
-    captured = {}
+def _response(text: str, route: str) -> ProviderResponse:
+    return ProviderResponse(
+        text=text,
+        model="served-model",
+        input_tokens=1,
+        output_tokens=1,
+        cost=Decimal("0"),
+        metadata={
+            "router_verified": True,
+            "profile": "standard",
+            "provider": "router-provider",
+            "served_model": "served-model",
+            "fallback_outcome": "served",
+            "requested_route": route,
+        },
+    )
 
-    monkeypatch.setattr(api, "load_config", lambda: {"default_models": {"review": "gpt-5.4"}})
+
+def test_review_defaults_to_review_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+    monkeypatch.setattr(
+        api, "load_config", lambda: {"default_models": {"review": "stage:review"}}
+    )
 
     def stub_review_single(prompt, model, system_prompt, use_cache, cache_ttl):
         captured["model"] = model
         return "ok"
 
     monkeypatch.setattr(api, "_review_single", stub_review_single)
-
-    result = api.review("diff --git a/test")
-
-    assert result == "ok"
-    assert captured["model"] == "gpt-5.4"
+    assert api.review("diff --git a/test") == "ok"
+    assert captured["model"] == "stage:review"
 
 
-def test_review_async_defaults_to_gpt_5_4(monkeypatch):
-    """Async review uses GPT-5.4 when no model is provided."""
+def test_review_async_defaults_to_review_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = {}
-
-    monkeypatch.setattr(api, "load_config", lambda: {"default_models": {"review": "gpt-5.4"}})
+    monkeypatch.setattr(
+        api, "load_config", lambda: {"default_models": {"review": "stage:review"}}
+    )
 
     async def stub_review_single_async(prompt, model, system_prompt, use_cache, cache_ttl):
         captured["model"] = model
         return "ok"
 
     monkeypatch.setattr(api, "_review_single_async", stub_review_single_async)
-
-    result = asyncio.run(api.review_async("diff --git a/test"))
-
-    assert result == "ok"
-    assert captured["model"] == "gpt-5.4"
+    assert asyncio.run(api.review_async("diff --git a/test")) == "ok"
+    assert captured["model"] == "stage:review"
 
 
-def test_review_forwards_reasoning_effort_to_openai_model(monkeypatch):
-    """OpenAI reasoning effort reaches the provider without an API call."""
+def test_review_forwards_provider_neutral_effort_to_router(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured = {}
 
     class StubProvider:
         def complete(self, prompt, model, system_prompt=None, **kwargs):
-            captured["model"] = model
-            captured["kwargs"] = kwargs
-            return ProviderResponse(
-                text="ok",
-                model=model,
-                input_tokens=1,
-                output_tokens=1,
-                cost=Decimal("0"),
-            )
+            captured.update(model=model, kwargs=kwargs)
+            return _response("verified", model)
 
-    monkeypatch.setattr(api, "get_provider", lambda _provider: StubProvider())
-    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
-
+    monkeypatch.setattr(api, "get_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(api, "log_api_call", lambda **kwargs: None)
     result = api.review(
         "diff --git a/test",
-        model="sol-5.6",
-        use_cache=False,
-        per_model_timeout=0,
-        reasoning_effort="xhigh",
-    )
-
-    assert result.text == "ok"
-    assert captured == {"model": "gpt-5.6-sol", "kwargs": {"reasoning_effort": "xhigh"}}
-
-
-def test_review_rejects_unknown_reasoning_effort():
-    """The public API rejects unsupported effort names before provider work."""
-    try:
-        api.review("diff --git a/test", model="sol-5.6", reasoning_effort="ultra")
-    except ValueError as exc:
-        assert "reasoning_effort" in str(exc)
-    else:
-        raise AssertionError("expected invalid reasoning effort to fail")
-
-
-def test_review_forwards_reasoning_effort_to_deepseek(monkeypatch):
-    captured = {}
-
-    class StubProvider:
-        def complete(self, prompt, model, system_prompt=None, **kwargs):
-            captured["model"] = model
-            captured["kwargs"] = kwargs
-            return ProviderResponse(
-                text="verified",
-                model=model,
-                input_tokens=1,
-                output_tokens=1,
-                cost=Decimal("0"),
-            )
-
-    monkeypatch.setattr(api, "get_provider", lambda _provider: StubProvider())
-    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
-
-    result = api.review(
-        "diff --git a/test",
-        model="deepseek-pro",
+        model="deepseek",
         focus="verification",
         use_cache=False,
         per_model_timeout=0,
-        reasoning_effort="xhigh",
+        reasoning_effort="max",
     )
-
     assert result.text == "verified"
     assert captured == {
-        "model": "deepseek-v4-pro",
-        "kwargs": {"reasoning_effort": "xhigh"},
+        "model": "stage:audit",
+        "kwargs": {"reasoning_effort": "max"},
     }
+
+
+def test_review_rejects_unknown_reasoning_effort() -> None:
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        api.review("diff --git a/test", model="deepseek", reasoning_effort="ultra")
+
+
+def test_review_rejects_direct_api_model_selector() -> None:
+    with pytest.raises(ValueError, match="Unknown LLM route"):
+        api.review(
+            "diff --git a/test",
+            model="vendor/model-id",
+            use_cache=False,
+            per_model_timeout=0,
+        )

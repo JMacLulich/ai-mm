@@ -1,6 +1,6 @@
 ---
 name: mm-review
-description: Run multi-model AI code reviews using GPT + DeepSeek + Claude Opus + local models, or a max-thinking DeepSeek verification pass. Use when user says "mm review", "get a mm review", "multimode review", "run a DeepSeek verification", "review with max thinking", "get multi-model feedback", or "parallel review".
+description: Run parallel semantic review seats through llm-router, including a stable DeepSeek verification route. Use when user says "mm review", "get a mm review", "multimode review", "run a DeepSeek verification", "get multi-model feedback", or "parallel review".
 disable-model-invocation: false
 allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), AskUserQuestion
 ---
@@ -9,7 +9,8 @@ allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), AskUserQuestion
 
 ## Purpose
 
-Run parallel multi-model AI code reviews using `ai-mm`. Provides independent perspectives from GPT + DeepSeek + Claude Opus plus local models for broader feedback.
+Run parallel semantic review seats using `ai-mm`. Each seat goes through the
+host-level Rust `llm-router`, which owns provider/model selection and fallback.
 
 ## When to Use
 
@@ -25,8 +26,8 @@ Use this skill when user says:
 ## Prerequisites
 
 - `ai-mm` must be installed at `~/Development/ai-mm` or another checkout that provides `ai`
-- API keys configured in `~/.config/ai-mm/env`
-- Local endpoint configured: `export OLLAMA_BASE_URL="http://localhost:11434"`
+- `llm-router` installed and healthy at `http://127.0.0.1:4000/health`
+- Provider credentials configured in `~/.config/llm-router/`
 
 ## Instructions
 
@@ -78,22 +79,16 @@ For the normal broad pass, execute the mm review:
 git diff | ai review --model mm --focus {chosen_focus}
 ```
 
-For a deep single-model adversarial pass, use GPT-5.6 Sol with xhigh reasoning:
+For an evidence-first DeepSeek verification pass, use the stable provider route:
 
 ```bash
-git diff | ai review --model sol-5.6 --reasoning-effort xhigh --focus {chosen_focus}
+git diff | ai review --model deepseek --focus verification
 ```
 
-The equivalent convenience profile is `--model sol-xhigh`. Sol is intentionally
-not part of the default `mm` group because it is a premium model; use it when
-the change warrants the extra cost. Reasoning effort is part of the cache key,
-so an xhigh review cannot reuse a lower-effort result.
+`llm-router` currently selects Flash for this route and owns its retry/fallback
+policy. Do not replace the provider selector with an API model ID.
 
-The output will show:
-- GPT review results
-- DeepSeek review results
-- Claude Opus 4.5 review results
-- Displayed side-by-side for comparison
+The output shows each semantic council seat alongside router provenance.
 
 ### Step 5: Summarize Results
 
@@ -335,32 +330,23 @@ This skill integrates with the separate `ai-mm` repository:
 - Installation: `cd ~/dev/ai-mm && ./run install`
 - Command: `ai review --model mm`
 
-## Cost Information
+## Cost and Routing Information
 
-- Typical mm review: $0.05-0.12
-- Uses: GPT-5.4 + DeepSeek V4 Pro (`deepseek-v4-pro`) + Claude Opus 4.6, plus local Qwen 3.6
-- Parallel execution: ~2-3 seconds
-- Cached for 24 hours
-
-### Model-Specific Reviews
-
-You can also use specific models:
-- `ai review --model gpt` - GPT-5.4 only ($1.75/$14 per 1M tokens, estimated)
-- `ai review --model deepseek-pro-xhigh --focus verification` - DeepSeek V4 Pro with max thinking
-- `ai review --model claude` - Claude Sonnet 4.5 only ($3/$15 per 1M tokens)
-- `ai review --model opus` - Claude Opus 4.5 only ($5/$25 per 1M tokens)
-- `ai review --model all` - All remote and local review models in parallel
+- `ai-mm` has no pricing table or provider cascade.
+- Inspect actual routing and spend with `llm-router stats`.
+- `ai review --model deepseek --focus verification` uses the stable DeepSeek
+  route; the router currently selects Flash.
+- `ai review --model stage:review` requests the normal review stage.
+- `ai review --model all` runs all semantic council seats in parallel.
 
 ## Troubleshooting
 
 **"ai: command not found"**
 → Tool not installed. Guide user through installation.
 
-**"Error: OPENAI_API_KEY not set"**
-→ API keys not configured. User needs to create `~/.config/ai-mm/env`
-
-**"OLLAMA_BASE_URL not set"**
-→ Configure local endpoint in `ai config` (suggested: `http://localhost:11434`).
+**"llm-router request failed"**
+→ Run `llm-router health` and repair provider configuration in
+`~/.config/llm-router/`. Do not add provider keys to `ai-mm`.
 
 **"No changes to review"**
 → Ask user what they want to review (specific files, branch diff, etc.)

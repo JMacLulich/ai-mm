@@ -1,6 +1,6 @@
 ---
 name: mm-review-loop
-description: Run iterative multi-model, DeepSeek max-thinking verification, or GPT-5.6 Sol xhigh code reviews, fixing issues each round, until only low-priority (nice-to-have) items remain. Use when user says "do multiple mm rounds till low hanging left", "mm review loop", "DeepSeek verification loop", "Sol review loop", "keep reviewing and fixing", "iterate till clean", or "review and fix until only nits left".
+description: Run iterative router-backed council or DeepSeek Flash verification reviews, fixing issues each round until only low-priority items remain. Use when user says "do multiple mm rounds till low hanging left", "mm review loop", "DeepSeek verification loop", "keep reviewing and fixing", "iterate till clean", or "review and fix until only nits left".
 user-invocable: true
 disable-model-invocation: false
 allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), Bash(./run *), Read, Edit, Write, Glob, Grep
@@ -10,7 +10,8 @@ allowed-tools: Bash(git *), Bash(which ai), Bash(ai review *), Bash(./run *), Re
 
 ## Purpose
 
-Run mm, DeepSeek V4 Pro max-thinking verification, or GPT-5.6 Sol xhigh review → fix all valid must-fix/high/medium issues → repeat until models only flag low-priority (nice-to-have) items. This is the iterative improvement workflow.
+Run a router-backed council or DeepSeek Flash verification → fix all valid
+must-fix/high/medium issues → repeat until only low-priority items remain.
 
 ## Trigger Phrases
 
@@ -55,19 +56,19 @@ git diff --stat
 
 Build the review command from the target files, e.g.:
 ```bash
-cat src/foo/api.py src/foo/cache.py | ai review --model mm --focus review --per-model-timeout 120
+cat src/foo/api.py src/foo/cache.py | ai review --model mm --focus review --per-model-timeout 600
 ```
 
-For a premium single-model adversarial round, use:
+For an opt-in maximum-reasoning profile, use:
 
 ```bash
-cat src/foo/api.py src/foo/cache.py | ai review --model sol-xhigh --focus review
+cat src/foo/api.py src/foo/cache.py | ai review --model profile:kimi --focus review
 ```
 
-For an evidence-first max-thinking verification round, use:
+For an evidence-first DeepSeek Flash verification round, use:
 
 ```bash
-cat src/foo/api.py src/foo/cache.py | ai review --model deepseek-pro-xhigh --focus verification
+cat src/foo/api.py src/foo/cache.py | ai review --model deepseek --focus verification
 ```
 
 ### Step 2: Run MM Review

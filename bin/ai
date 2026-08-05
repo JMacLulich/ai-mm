@@ -12,16 +12,14 @@ Usage:
     ai stabilize "goal" [--rounds N] [--mode MODE]
     ai cache stats|clear [--older-than HOURS]
     ai usage [--today|--week|--month] [--export FILE]
-    ai check-models [--gpt MODEL] [--deepseek MODEL] [--claude MODEL] [--alibaba MODEL] [--local MODEL] [--lmstudio MODEL]
+    ai check-models [--timeout SECONDS]
 
 Examples:
     ai plan "Build user authentication"
     ai plan "Migrate auth service" --model mm --depth deep --rounds 3 --strict
     ai plan "Migrate auth service" --quiet-quality
-    ai review --model deepseek-pro-xhigh --focus verification
-    ai review --model mm  # Parallel GPT + DeepSeek + Claude Opus + local Ollama + LM Studio
-    ai review --model sol-5.6 --reasoning-effort xhigh  # GPT-5.6 Sol frontier review
-    ai review --model sol-xhigh  # Same Sol xhigh profile
+    ai review --model deepseek --focus verification
+    ai review --model mm  # Parallel semantic review/audit/adversarial seats
     ai stabilize "Add caching layer" --rounds 2 --mode infra
 """
 
@@ -65,14 +63,8 @@ from claude_mm.cache import clear_cache, get_cache_stats  # noqa: E402
 from claude_mm.config import load_config  # noqa: E402
 from claude_mm.config_tui import run_config_tui  # noqa: E402
 from claude_mm.models import MODEL_GROUPS  # noqa: E402
-from claude_mm.providers.alibaba import AlibabaProvider  # noqa: E402
-from claude_mm.providers.anthropic import AnthropicProvider  # noqa: E402
-from claude_mm.providers.deepseek import DeepSeekProvider  # noqa: E402
-from claude_mm.providers.lmstudio import LMStudioProvider  # noqa: E402
-from claude_mm.providers.ollama import OllamaProvider  # noqa: E402
-from claude_mm.providers.openai import OpenAIProvider  # noqa: E402
+from claude_mm.providers.router import LLMRouterProvider  # noqa: E402
 from claude_mm.rig_assist import assist as rig_assist  # noqa: E402
-from claude_mm.timeouts import supports_signal_timeout, timeout_guard  # noqa: E402
 from claude_mm.usage import get_usage_stats  # noqa: E402
 
 
@@ -90,66 +82,10 @@ def cmd_review(args):
         print("Error: Empty input", file=sys.stderr)
         sys.exit(1)
 
-    # Handle multimode (mm) and fast groups
-    if args.model == "mm":
-        models = MODEL_GROUPS["mm"]
-        print(
-            "🔍 Running multimode review with GPT-5.4 + DeepSeek V4 Pro + Claude Opus 4.6 + local Ollama + LM Studio in parallel...",
-            file=sys.stderr,
-        )
-        if args.focus and args.focus != "general":
-            print(f"📊 Focus: {args.focus}", file=sys.stderr)
-        if args.per_model_timeout and args.per_model_timeout > 0:
-            print(
-                f"⏱️  Per-model timeout: {args.per_model_timeout:.1f}s",
-                file=sys.stderr,
-            )
-        print(file=sys.stderr)
-    elif args.model == "all":
-        models = MODEL_GROUPS["all"]
-        print(
-            "🔍 Running review with all default providers (GPT + DeepSeek + Opus + local Ollama + LM Studio) in parallel...",
-            file=sys.stderr,
-        )
-        if args.focus and args.focus != "general":
-            print(f"📊 Focus: {args.focus}", file=sys.stderr)
-        if args.per_model_timeout and args.per_model_timeout > 0:
-            print(
-                f"⏱️  Per-model timeout: {args.per_model_timeout:.1f}s",
-                file=sys.stderr,
-            )
-        print(file=sys.stderr)
-    elif args.model == "fast":
-        models = MODEL_GROUPS["fast"]
-        print(
-            "🔍 Running review with all 3 fast models (GPT Instant + DeepSeek V4 Flash + Haiku 4.5) in parallel...",
-            file=sys.stderr,
-        )
-        if args.focus and args.focus != "general":
-            print(f"📊 Focus: {args.focus}", file=sys.stderr)
-        if args.per_model_timeout and args.per_model_timeout > 0:
-            print(
-                f"⏱️  Per-model timeout: {args.per_model_timeout:.1f}s",
-                file=sys.stderr,
-            )
-        print(file=sys.stderr)
-    elif args.model == "sol-xhigh":
-        models = MODEL_GROUPS["sol-xhigh"]
-        print(
-            "🔍 Running GPT-5.6 Sol review with xhigh reasoning...",
-            file=sys.stderr,
-        )
-    elif args.model == "deepseek-pro-xhigh":
-        models = MODEL_GROUPS["deepseek-pro-xhigh"]
-        print(
-            "🔍 Running DeepSeek V4 Pro review with max thinking...",
-            file=sys.stderr,
-        )
-    elif args.model in MODEL_GROUPS:
-        # Any other named group (e.g. "local" → qwen36 + gemma4) expands generically.
+    if args.model in MODEL_GROUPS:
         models = MODEL_GROUPS[args.model]
         print(
-            f"🔍 Running '{args.model}' group review: {', '.join(models)} in parallel...",
+            f"🔍 Running routed '{args.model}' review: {', '.join(models)}...",
             file=sys.stderr,
         )
         if args.focus and args.focus != "general":
@@ -159,19 +95,10 @@ def cmd_review(args):
         models = [args.model] if args.model else None
 
     reasoning_effort = args.reasoning_effort
-    if args.model == "sol-xhigh":
-        if reasoning_effort not in (None, "xhigh"):
-            print("Error: --model sol-xhigh requires --reasoning-effort xhigh", file=sys.stderr)
-            sys.exit(2)
-        reasoning_effort = "xhigh"
-    if args.model == "deepseek-pro-xhigh":
-        if reasoning_effort not in (None, "xhigh", "max"):
-            print(
-                "Error: --model deepseek-pro-xhigh requires --reasoning-effort xhigh or max",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-        reasoning_effort = "xhigh"
+    if args.model == "fast" and reasoning_effort is None:
+        reasoning_effort = "fast"
+    if args.model == "max" and reasoning_effort is None:
+        reasoning_effort = "max"
     if reasoning_effort:
         print(f"🧠 Reasoning effort: {reasoning_effort}", file=sys.stderr)
 
@@ -182,19 +109,19 @@ def cmd_review(args):
             # -1 is the "unset" sentinel; normalize for BOTH single- and
             # multi-model paths (single-model previously forwarded -1 straight
             # into review(), which rejects it: "per_model_timeout must be >= 0").
-            effective_timeout = 300.0 if args.model == "deepseek-pro-xhigh" else 60.0
-            if args.model == "deepseek-pro-xhigh":
-                print(
-                    "⏱️  Using max-thinking timeout: 300.0s "
-                    "(set --per-model-timeout 0 to disable)",
-                    file=sys.stderr,
-                )
-            if models and len(models) > 1:
-                print(
-                    "⏱️  Using default per-model timeout: 60.0s "
-                    "(set --per-model-timeout 0 to disable)",
-                    file=sys.stderr,
-                )
+            effective_timeout = 600.0
+            print(
+                "⏱️  Using default router-task timeout: 600.0s "
+                "(set --per-model-timeout 0 to disable)",
+                file=sys.stderr,
+            )
+
+        # Fail early with a router-specific diagnostic. There is intentionally no
+        # direct-provider degradation path: llm-router owns retries and fallbacks.
+        health_timeout = 10.0
+        if effective_timeout is not None and effective_timeout > 0:
+            health_timeout = min(effective_timeout, health_timeout)
+        LLMRouterProvider(timeout_seconds=health_timeout).health_check()
 
         local_timeout = getattr(args, "local_model_timeout", None)
         if local_timeout is not None and local_timeout < 0:
@@ -481,48 +408,18 @@ def cmd_config(args):
 
 
 def cmd_check_models(args):
-    """Check access to configured GPT, DeepSeek, Claude, and local models."""
-    checks = [
-        ("gpt", args.gpt, OpenAIProvider),
-        ("deepseek", args.deepseek, DeepSeekProvider),
-        ("claude", args.claude, AnthropicProvider),
-        ("alibaba", args.alibaba, AlibabaProvider),
-        ("local", args.local, OllamaProvider),
-        ("lmstudio", args.lmstudio, LMStudioProvider),
-    ]
-    all_ok = True
-    timeout_seconds = max(0.0, args.timeout)
-    has_timeout_support = supports_signal_timeout()
-
-    if timeout_seconds > 0 and not has_timeout_support:
-        print(
-            "Warning: per-model timeout is not supported on this platform; running without timeout",
-            file=sys.stderr,
-        )
-
-    for provider_name, model, provider_cls in checks:
-        try:
-            with timeout_guard(timeout_seconds):
-                provider = provider_cls()
-                request_options = {"temperature": 0, "max_tokens": 5}
-                if provider_name == "deepseek":
-                    request_options["reasoning_effort"] = "none"
-                response = provider.complete(
-                    prompt="Reply with OK",
-                    model=model,
-                    **request_options,
-                )
-            text = (response.text or "").strip()
-            print(f"{provider_name}/{model}: OK - {text[:80]}")
-        except TimeoutError:
-            all_ok = False
-            print(f"{provider_name}/{model}: FAIL - timed out after {timeout_seconds:.1f}s")
-        except Exception as e:
-            all_ok = False
-            print(f"{provider_name}/{model}: FAIL - {e}")
-
-    if not all_ok:
+    """Check the central router and report its provider-attempt health."""
+    try:
+        payload = LLMRouterProvider(timeout_seconds=max(1.0, args.timeout)).health_check()
+    except Exception as e:
+        print(f"llm-router: FAIL - {e}")
         sys.exit(1)
+    if not payload.get("any_available"):
+        print("llm-router: FAIL - no available route attempts")
+        sys.exit(1)
+    entries = payload.get("entries", [])
+    up = sum(1 for entry in entries if entry.get("status") == "up")
+    print(f"llm-router: OK - {up}/{len(entries)} registered attempts available")
 
 
 def main():
@@ -557,15 +454,25 @@ def main():
     review_parser.add_argument(
         "--model",
         help=(
-            "Model/profile to use (gpt, deepseek, deepseek-pro-xhigh, claude, opus, "
-            "ollama, lmstudio, sol-5.6, sol-xhigh, mm, all, fast)"
+            "Router selector to use (deepseek, stage:review, profile:kimi, mm, all, fast)"
         ),
     )
     review_parser.add_argument(
         "--reasoning-effort",
-        choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        choices=[
+            "none",
+            "minimal",
+            "low",
+            "fast",
+            "medium",
+            "standard",
+            "high",
+            "careful",
+            "xhigh",
+            "max",
+        ],
         default=None,
-        help="Provider reasoning effort; DeepSeek maps xhigh to max thinking",
+        help="Provider-neutral quality hint forwarded to llm-router",
     )
     review_parser.add_argument(
         "--focus",
@@ -586,8 +493,7 @@ def main():
         type=float,
         default=-1.0,
         help=(
-            "Timeout in seconds for remote models (default 60s; DeepSeek max profile 300s; "
-            "0 disables)"
+            "Client deadline for one complete router task (default 600s; 0 disables)"
         ),
     )
     review_parser.add_argument(
@@ -595,8 +501,7 @@ def main():
         type=float,
         default=None,
         help=(
-            "Timeout in seconds for local models (ollama, lmstudio). "
-            "Overrides --per-model-timeout for local providers only. Default: 120s."
+            "Deprecated compatibility option; llm-router owns attempt timeouts."
         ),
     )
     review_parser.add_argument("--no-cache", action="store_true", help="Bypass cache")
@@ -655,14 +560,14 @@ def main():
 
     rig_parser = subparsers.add_parser(
         "rig-assist",
-        help="Schema-constrained local-Qwen/DeepSeek rig planning or recovery advice",
+        help="Schema-constrained routed rig planning or recovery advice",
     )
     rig_parser.add_argument("--mode", choices=["plan", "recovery"], required=True)
     rig_parser.add_argument("--input", default="-", help="JSON packet path or - for stdin")
     rig_parser.add_argument(
         "--model",
-        choices=["qwen36-local", "deepseek", "deepseek-pro", "deepseek-pro-xhigh"],
-        default="qwen36-local",
+        choices=["local", "deepseek"],
+        default="local",
     )
     rig_parser.add_argument("--compact", action="store_true", help="Emit compact JSON")
 
@@ -698,49 +603,19 @@ def main():
     usage_parser.add_argument("--export", help="Export to CSV file")
 
     # Config commands
-    subparsers.add_parser("config", help="Interactive provider configuration")
+    subparsers.add_parser("config", help="Interactive llm-router configuration")
     subparsers.add_parser("configure", help="Open interactive TUI configuration manager")
 
     # Model access check command
     check_parser = subparsers.add_parser(
         "check-models",
-        help="Check access to configured cloud and local models",
-    )
-    check_parser.add_argument(
-        "--gpt",
-        default="gpt-5.4",
-        help="GPT model to test (default: gpt-5.4)",
-    )
-    check_parser.add_argument(
-        "--claude",
-        default="claude-opus-4-6",
-        help="Claude model to test (default: claude-opus-4-6)",
-    )
-    check_parser.add_argument(
-        "--deepseek",
-        default="deepseek-v4-pro",
-        help="DeepSeek model to test (default: deepseek-v4-pro)",
-    )
-    check_parser.add_argument(
-        "--alibaba",
-        default="qwen3.6-35b-a3b",
-        help="Alibaba DashScope model to test (default: qwen3.6-35b-a3b)",
-    )
-    check_parser.add_argument(
-        "--local",
-        default="qwen2.5:14b-instruct",
-        help="Local Ollama model to test (default: qwen2.5:14b-instruct)",
-    )
-    check_parser.add_argument(
-        "--lmstudio",
-        default="qwen/qwen3.6-35b-a3b",
-        help="LM Studio model to test (default: qwen/qwen3.6-35b-a3b)",
+        help="Check llm-router and its registered provider attempts",
     )
     check_parser.add_argument(
         "--timeout",
         type=float,
         default=20.0,
-        help="Per-model timeout in seconds (default: 20, use 0 to disable)",
+        help="Router health-check timeout in seconds (default: 20)",
     )
 
     args = parser.parse_args()

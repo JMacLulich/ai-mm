@@ -1,548 +1,117 @@
-"""
-Centralized model definitions and metadata.
+"""Semantic LLM route intents for the Rust ``llm-router`` service.
 
-This is the single source of truth for:
-- Valid model names per provider
-- Model aliases and mappings
-- API model names vs user-facing names
-- Model characteristics (speed, cost tier, etc.)
+This module intentionally contains no provider URLs, credentials, API model IDs, or
+fallback order. Those decisions belong to ``~/Development/llm-router``.
 """
 
-import os
-from typing import Any, Dict, Optional, Tuple
+from __future__ import annotations
 
-# ============================================================================
-# Model Registry
-# ============================================================================
+import re
+from typing import Any, Optional, Tuple
 
-# OpenAI Models
-OPENAI_MODELS = {
-    # User-facing name -> API name
-    "gpt-5.6-sol": "gpt-5.6-sol",  # Frontier model for complex professional work
-    "gpt-5.4": "gpt-5.4",  # Latest thinking model for deep review
-    "gpt-5.2-chat-latest": "gpt-5.2-chat-latest",  # Fast workhorse (Instant)
-    "gpt-5.2": "gpt-5.2",  # Thinking model for complex work
-    "gpt-5.2-pro": "gpt-5.2-pro",  # Premium model, highest quality
-    "gpt-4o": "gpt-4o",  # Previous generation
-    "gpt-4": "gpt-4",  # Legacy
-}
+ROUTER_PROVIDER = "llm_router"
 
-# User-friendly aliases
-OPENAI_ALIASES = {
-    "sol": "gpt-5.6-sol",
-    "sol-5.6": "gpt-5.6-sol",
-    "gpt-5.6": "gpt-5.6-sol",  # Official unsuffixed alias routes to Sol
-    "gpt": "gpt-5.4",  # Default to latest thinking model
-    "gpt-5": "gpt-5.4",
-    "gpt-instant": "gpt-5.2-chat-latest",
-    "gpt-5.2-instant": "gpt-5.2-chat-latest",  # Legacy alias (incorrect API name)
-}
+ROUTER_STAGES = frozenset(
+    {
+        "adversarial",
+        "architect",
+        "audit",
+        "chat",
+        "classification",
+        "code",
+        "extraction",
+        "planning",
+        "review",
+        "standard",
+    }
+)
 
-# DeepSeek Models (OpenAI-compatible API)
-DEEPSEEK_MODELS = {
-    "deepseek-v4-pro": "deepseek-v4-pro",  # Maximum-quality reasoning model
-    "deepseek-v4-flash": "deepseek-v4-flash",  # Lower-latency V4 model
-}
-
-DEEPSEEK_ALIASES = {
-    "deepseek": "deepseek-v4-pro",
-    "deepseek-pro": "deepseek-v4-pro",
-    "deepseek-flash": "deepseek-v4-flash",
-}
-
-# Anthropic Claude Models
-CLAUDE_MODELS = {
-    "claude-opus-4-6": "claude-opus-4-6",  # Latest Opus
-    "claude-sonnet-4-6": "claude-sonnet-4-6",  # Latest Sonnet
-    "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",  # Previous Opus
-    "claude-sonnet-4-5-20250929": "claude-sonnet-4-5-20250929",  # Previous Sonnet
-    "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",  # Latest Haiku
-}
-
-CLAUDE_ALIASES = {
-    "claude": "claude-opus-4-6",  # Default to latest Opus
-    "opus": "claude-opus-4-6",  # Opus alias
-    "haiku": "claude-haiku-4-5-20251001",
-}
-
-# Alibaba Cloud DashScope Models (OpenAI-compatible cloud endpoint)
-ALIBABA_MODELS = {
-    "qwen3.6-35b-a3b": "qwen3.6-35b-a3b",
-}
-
-ALIBABA_ALIASES = {
-    "alibaba": "qwen3.6-35b-a3b",
-    "dashscope": "qwen3.6-35b-a3b",
-    "qwen3.6-cloud": "qwen3.6-35b-a3b",
-}
-
-# Ollama Models (local)
-OLLAMA_MODELS = {
-    "qwen2.5:14b-instruct": "qwen2.5:14b-instruct",  # Good balance
-    "qwen2.5:7b-instruct": "qwen2.5:7b-instruct",  # Faster
-    "llama3:latest": "llama3:latest",  # Meta Llama 3
-}
-
-OLLAMA_ALIASES = {
-    "ollama": "qwen2.5:14b-instruct",  # Default
-    "qwen": "qwen2.5:14b-instruct",
-    "llama": "llama3:latest",
-}
-
-# LM Studio Models (local, OpenAI-compatible endpoint)
-LMSTUDIO_MODELS = {
-    "qwen/qwen3.6-35b-a3b": "qwen/qwen3.6-35b-a3b",
-    "google/gemma-4-26b-a4b": "google/gemma-4-26b-a4b",
-    "qwen3.5:27b": "qwen3.5:27b",
-}
-
-LMSTUDIO_ALIASES = {
-    "lmstudio": "qwen/qwen3.6-35b-a3b",
-    "qwen36-local": "qwen/qwen3.6-35b-a3b",
-    "gemma4": "google/gemma-4-26b-a4b",
-    "gemma": "google/gemma-4-26b-a4b",
-    "qwen3.5": "qwen3.5:27b",
-}
-
-# Dynamic aliases choose cloud Qwen if DashScope is configured, otherwise local LM Studio.
-QWEN_DYNAMIC_ALIASES = {
-    "qwen3.6": "qwen3.6-35b-a3b",
-}
-
-# Model groups for multi-model reviews
+# Multi-seat orchestration remains ai-mm's responsibility; every seat asks for an
+# intent and lets llm-router choose and cascade provider/model attempts.
 MODEL_GROUPS = {
-    "mm": [
-        "gpt-5.4",
-        "deepseek-pro",
-        "claude-opus-4-6",
-        "ollama",
-        "lmstudio",
-    ],  # Multimode includes both local providers
-    "all": ["gpt-5.4", "deepseek-pro", "claude-opus-4-6", "ollama", "lmstudio"],
-    # All providers
-    "local": ["lmstudio", "gemma4"],  # Local-only LM Studio profiles: qwen36 + gemma4
-    "sol-xhigh": ["sol-5.6"],  # Explicit premium single-model review profile
-    "deepseek-pro-xhigh": ["deepseek-pro"],  # V4 Pro with API-level max thinking
-    "fast": [
-        "gpt-5.2-chat-latest",
-        "deepseek-flash",
-        "claude-haiku-4-5-20251001",
-    ],  # Fast models
+    "mm": ["stage:review", "stage:audit", "stage:adversarial"],
+    "all": ["stage:review", "stage:audit", "stage:adversarial", "stage:architect"],
+    "fast": ["stage:review"],
+    "local": ["profile:local_only"],
+    "max": ["profile:kimi"],
 }
 
+# Stable convenience selectors name a policy boundary, not an API model.
+LEGACY_ROUTE_ALIASES = {
+    # Stable provider-level selector. The router currently selects Flash for the
+    # audit stage; retry, fallback, and future model changes remain router-owned.
+    "deepseek": "stage:audit",
+    "local": "profile:local_only",
+    "kimi": "profile:kimi",
+    "commercial": "profile:commercial_compliant",
+}
 
-def _has_alibaba_config() -> bool:
-    return bool(os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIBABA_API_KEY"))
-
-
-def _has_lmstudio_config() -> bool:
-    return bool(os.getenv("LMSTUDIO_BASE_URL") or os.getenv("LMSTUDIO_API_KEY"))
-
-
-def _resolve_qwen36_alias() -> Tuple[str, str]:
-    if _has_alibaba_config():
-        return "alibaba", ALIBABA_MODELS["qwen3.6-35b-a3b"]
-    if _has_lmstudio_config():
-        return "lmstudio", LMSTUDIO_MODELS["qwen/qwen3.6-35b-a3b"]
-    return "lmstudio", LMSTUDIO_MODELS["qwen/qwen3.6-35b-a3b"]
-
-
-# ============================================================================
-# Provider-Model Mappings
-# ============================================================================
-
-
-def get_provider_for_model(model: str) -> Optional[str]:
-    """
-    Get the provider name for a given model.
-
-    Args:
-        model: Model name (can be alias or API name)
-
-    Returns:
-        Provider name ("openai", "deepseek", "anthropic", "alibaba", "ollama", "lmstudio")
-        or None if unknown
-    """
-    # Check OpenAI
-    if model in OPENAI_MODELS or model in OPENAI_ALIASES:
-        return "openai"
-
-    # Check DeepSeek
-    if model in DEEPSEEK_MODELS or model in DEEPSEEK_ALIASES:
-        return "deepseek"
-
-    # Check Claude
-    if model in CLAUDE_MODELS or model in CLAUDE_ALIASES:
-        return "anthropic"
-
-    # Check Alibaba Cloud DashScope
-    if model in ALIBABA_MODELS or model in ALIBABA_ALIASES:
-        return "alibaba"
-
-    # Check Qwen aliases that can run in cloud or locally.
-    if model in QWEN_DYNAMIC_ALIASES:
-        provider, _api_model = _resolve_qwen36_alias()
-        return provider
-
-    # Check Ollama
-    if model in OLLAMA_MODELS or model in OLLAMA_ALIASES:
-        return "ollama"
-
-    # Check LM Studio
-    if model in LMSTUDIO_MODELS or model in LMSTUDIO_ALIASES:
-        return "lmstudio"
-
-    return None
+_INTENT_RE = re.compile(r"^(stage|profile):[a-z0-9][a-z0-9_-]*$")
 
 
 def normalize_model_name(model: str) -> Tuple[str, str]:
+    """Resolve a user selector to ``(llm_router, semantic_intent)``.
+
+    Explicit ``stage:`` and ``profile:`` values pass through. Bare known stages are
+    normalized to ``stage:<name>``. Historical provider/model names are deprecated
+    aliases and never select a vendor directly.
     """
-    Convert user-facing model name to (provider, api_model_name).
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("LLM route must be a non-empty string")
+    selector = model.strip().lower()
 
-    Args:
-        model: User-facing model name or alias
+    if selector in ROUTER_STAGES:
+        return ROUTER_PROVIDER, f"stage:{selector}"
+    if _INTENT_RE.fullmatch(selector):
+        return ROUTER_PROVIDER, selector
+    if selector in LEGACY_ROUTE_ALIASES:
+        intent = LEGACY_ROUTE_ALIASES[selector]
+        return ROUTER_PROVIDER, intent
 
-    Returns:
-        Tuple of (provider, api_model_name)
-
-    Raises:
-        ValueError: If model is unknown
-
-    Examples:
-        >>> normalize_model_name("gpt")
-        ("openai", "gpt-5.4")
-        >>> normalize_model_name("gpt-5.2-instant")
-        ("openai", "gpt-5.2-chat-latest")
-        >>> normalize_model_name("deepseek")
-        ("deepseek", "deepseek-v4-pro")
-        >>> normalize_model_name("ollama")
-        ("ollama", "qwen2.5:14b-instruct")
-    """
-    # Try OpenAI
-    if model in OPENAI_MODELS:
-        return "openai", OPENAI_MODELS[model]
-    if model in OPENAI_ALIASES:
-        return "openai", OPENAI_MODELS[OPENAI_ALIASES[model]]
-
-    # Try DeepSeek
-    if model in DEEPSEEK_MODELS:
-        return "deepseek", DEEPSEEK_MODELS[model]
-    if model in DEEPSEEK_ALIASES:
-        return "deepseek", DEEPSEEK_MODELS[DEEPSEEK_ALIASES[model]]
-
-    # Try Claude
-    if model in CLAUDE_MODELS:
-        return "anthropic", CLAUDE_MODELS[model]
-    if model in CLAUDE_ALIASES:
-        return "anthropic", CLAUDE_MODELS[CLAUDE_ALIASES[model]]
-
-    # Try Alibaba Cloud DashScope
-    if model in ALIBABA_MODELS:
-        return "alibaba", ALIBABA_MODELS[model]
-    if model in ALIBABA_ALIASES:
-        return "alibaba", ALIBABA_MODELS[ALIBABA_ALIASES[model]]
-
-    # Try dynamic Qwen aliases after explicit cloud aliases.
-    if model in QWEN_DYNAMIC_ALIASES:
-        return _resolve_qwen36_alias()
-
-    # Try Ollama
-    if model in OLLAMA_MODELS:
-        return "ollama", OLLAMA_MODELS[model]
-    if model in OLLAMA_ALIASES:
-        return "ollama", OLLAMA_MODELS[OLLAMA_ALIASES[model]]
-
-    # Try LM Studio
-    if model in LMSTUDIO_MODELS:
-        return "lmstudio", LMSTUDIO_MODELS[model]
-    if model in LMSTUDIO_ALIASES:
-        return "lmstudio", LMSTUDIO_MODELS[LMSTUDIO_ALIASES[model]]
-
-    raise ValueError(f"Unknown model: {model}")
-
-
-def get_model_display_name(api_model: str) -> str:
-    """
-    Get user-friendly display name for an API model.
-
-    Args:
-        api_model: API model name (e.g., "gpt-5.4")
-
-    Returns:
-        Display name (e.g., "GPT-5.4")
-    """
-    display_names = {
-        # OpenAI
-        "gpt-5.6-sol": "GPT-5.6 Sol",
-        "gpt-5.4": "GPT-5.4",
-        "gpt-5.2-chat-latest": "GPT-5.2 Instant",
-        "gpt-5.2": "GPT-5.2 Thinking",
-        "gpt-5.2-pro": "GPT-5.2 Pro",
-        "gpt-4o": "GPT-4o",
-        "gpt-4": "GPT-4",
-        # DeepSeek
-        "deepseek-v4-pro": "DeepSeek V4 Pro",
-        "deepseek-v4-flash": "DeepSeek V4 Flash",
-        # Claude
-        "claude-opus-4-6": "Claude Opus 4.6",
-        "claude-sonnet-4-6": "Claude Sonnet 4.6",
-        "claude-opus-4-5-20251101": "Claude Opus 4.5",
-        "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
-        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
-        # Alibaba Cloud DashScope
-        "qwen3.6-35b-a3b": "Qwen 3.6 35B A3B (Alibaba Cloud)",
-        # Ollama
-        "qwen2.5:14b-instruct": "Qwen 2.5 14B (Local)",
-        "qwen2.5:7b-instruct": "Qwen 2.5 7B (Local)",
-        "llama3:latest": "Llama 3 (Local)",
-        # LM Studio
-        "qwen/qwen3.6-35b-a3b": "Qwen 3.6 35B A3B (LM Studio)",
-        "google/gemma-4-26b-a4b": "Gemma 4 26B A4B (LM Studio)",
-        "qwen3.5:27b": "Qwen 3.5 27B (LM Studio)",
-    }
-
-    return display_names.get(api_model, api_model)
-
-
-def get_model_characteristics(api_model: str) -> Dict[str, Any]:
-    """
-    Get model characteristics (speed, cost tier, context window, etc.).
-
-    Args:
-        api_model: API model name
-
-    Returns:
-        Dictionary with model characteristics
-    """
-    # Model characteristics
-    chars = {
-        # OpenAI
-        "gpt-5.6-sol": {
-            "speed": "slow",
-            "cost_tier": "very_high",
-            "context_window": 1050000,
-            "max_output_tokens": 128000,
-            "reasoning_efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-            "description": "Frontier GPT-5.6 Sol model for complex professional work",
-        },
-        "gpt-5.4": {
-            "speed": "medium",
-            "cost_tier": "medium",
-            "context_window": 128000,
-            "description": "Latest GPT thinking model for deep reviews and complex reasoning",
-        },
-        "gpt-5.2-chat-latest": {
-            "speed": "fast",
-            "cost_tier": "low",
-            "context_window": 128000,
-            "description": "Fast workhorse for everyday tasks",
-        },
-        "gpt-5.2": {
-            "speed": "medium",
-            "cost_tier": "medium",
-            "context_window": 128000,
-            "description": "Thinking model for complex reasoning",
-        },
-        "gpt-5.2-pro": {
-            "speed": "slow",
-            "cost_tier": "high",
-            "context_window": 128000,
-            "description": "Premium model with highest quality",
-        },
-        "gpt-4o": {
-            "speed": "medium",
-            "cost_tier": "medium",
-            "context_window": 128000,
-            "description": "Previous generation GPT model",
-        },
-        "gpt-4": {
-            "speed": "slow",
-            "cost_tier": "high",
-            "context_window": 8192,
-            "description": "Legacy GPT-4 model",
-        },
-        # DeepSeek
-        "deepseek-v4-pro": {
-            "speed": "moderate",
-            "cost_tier": "low",
-            "context_window": 1000000,
-            "max_output_tokens": 384000,
-            "reasoning_efforts": ["high", "max"],
-            "description": "DeepSeek V4 Pro with high or max thinking",
-        },
-        "deepseek-v4-flash": {
-            "speed": "fast",
-            "cost_tier": "very_low",
-            "context_window": 1000000,
-            "max_output_tokens": 384000,
-            "reasoning_efforts": ["high", "max"],
-            "description": "Lower-latency DeepSeek V4 model with thinking support",
-        },
-        # Claude
-        "claude-opus-4-6": {
-            "speed": "moderate",
-            "cost_tier": "high",
-            "context_window": 200000,
-            "description": "Latest Opus model for complex coding and reasoning",
-        },
-        "claude-sonnet-4-6": {
-            "speed": "fast",
-            "cost_tier": "medium",
-            "context_window": 200000,
-            "description": "Latest Sonnet model with strong speed and intelligence",
-        },
-        "claude-opus-4-5-20251101": {
-            "speed": "moderate",
-            "cost_tier": "high",
-            "context_window": 200000,
-            "description": "Premium model with maximum intelligence and practical performance",
-        },
-        "claude-sonnet-4-5-20250929": {
-            "speed": "fast",
-            "cost_tier": "medium",
-            "context_window": 200000,
-            "description": "Smart model for complex agents and coding",
-        },
-        "claude-haiku-4-5-20251001": {
-            "speed": "fastest",
-            "cost_tier": "low",
-            "context_window": 200000,
-            "description": "Fastest model with near-frontier intelligence",
-        },
-        # Alibaba Cloud DashScope
-        "qwen3.6-35b-a3b": {
-            "speed": "medium",
-            "cost_tier": "medium",
-            "context_window": 128000,
-            "description": "Cloud Qwen 3.6 35B A3B via Alibaba Cloud DashScope",
-        },
-        # Ollama
-        "qwen2.5:14b-instruct": {
-            "speed": "medium",
-            "cost_tier": "free",
-            "context_window": 128000,
-            "description": "Local Qwen 2.5 14B - good balance",
-        },
-        "qwen2.5:7b-instruct": {
-            "speed": "fast",
-            "cost_tier": "free",
-            "context_window": 128000,
-            "description": "Local Qwen 2.5 7B - faster",
-        },
-        "llama3:latest": {
-            "speed": "medium",
-            "cost_tier": "free",
-            "context_window": 8192,
-            "description": "Local Llama 3",
-        },
-        # LM Studio
-        "qwen/qwen3.6-35b-a3b": {
-            "speed": "medium",
-            "cost_tier": "free",
-            "context_window": 128000,
-            "description": "Local Qwen 3.6 35B A3B via LM Studio",
-        },
-        "google/gemma-4-26b-a4b": {
-            "speed": "medium",
-            "cost_tier": "free",
-            "context_window": 128000,
-            "description": "Local Gemma 4 26B A4B via LM Studio",
-        },
-        "qwen3.5:27b": {
-            "speed": "medium",
-            "cost_tier": "free",
-            "context_window": 128000,
-            "description": "Local Qwen 3.5 27B via LM Studio",
-        },
-    }
-
-    return chars.get(
-        api_model,
-        {
-            "speed": "unknown",
-            "cost_tier": "unknown",
-            "context_window": 8192,
-            "description": "Unknown model",
-        },
+    raise ValueError(
+        f"Unknown LLM route '{model}'. Use stage:<intent>, profile:<name>, "
+        f"or one of the groups: {', '.join(sorted(MODEL_GROUPS))}"
     )
 
 
-def list_all_models() -> Dict[str, list]:
-    """
-    List all available models grouped by provider.
+def get_provider_for_model(model: str) -> Optional[str]:
+    """Return the sole execution provider for a valid route, else ``None``."""
+    try:
+        provider, _intent = normalize_model_name(model)
+        return provider
+    except ValueError:
+        return None
 
-    Returns:
-        Dictionary mapping provider to list of model names
-    """
+
+def get_model_display_name(route: str) -> str:
+    """Return a human-readable route label without claiming a concrete model."""
+    try:
+        _provider, intent = normalize_model_name(route)
+    except ValueError:
+        intent = route
+    kind, _, name = intent.partition(":")
+    if not name:
+        return intent
+    return f"llm-router {kind} {name.replace('_', ' ')}"
+
+
+def get_model_characteristics(route: str) -> dict[str, Any]:
+    """Describe the stable client-side characteristics of a router intent."""
+    _provider, intent = normalize_model_name(route)
     return {
-        "openai": list(OPENAI_MODELS.keys()),
-        "deepseek": list(DEEPSEEK_MODELS.keys()),
-        "anthropic": list(CLAUDE_MODELS.keys()),
-        "alibaba": list(ALIBABA_MODELS.keys()),
-        "ollama": list(OLLAMA_MODELS.keys()),
-        "lmstudio": list(LMSTUDIO_MODELS.keys()),
+        "display_name": get_model_display_name(intent),
+        "route": intent,
+        "routing_owner": "llm-router",
+        "provider": ROUTER_PROVIDER,
+        "dynamic": True,
     }
 
 
-def list_all_aliases() -> Dict[str, str]:
-    """
-    List all model aliases and their targets.
-
-    Returns:
-        Dictionary mapping alias to target model
-    """
-    all_aliases = {}
-    all_aliases.update(OPENAI_ALIASES)
-    all_aliases.update(DEEPSEEK_ALIASES)
-    all_aliases.update(CLAUDE_ALIASES)
-    all_aliases.update(ALIBABA_ALIASES)
-    all_aliases.update(QWEN_DYNAMIC_ALIASES)
-    all_aliases.update(OLLAMA_ALIASES)
-    all_aliases.update(LMSTUDIO_ALIASES)
-    return all_aliases
+def list_all_models() -> dict[str, list[str]]:
+    """List supported semantic stage routes, grouped under the router boundary."""
+    return {ROUTER_PROVIDER: [f"stage:{stage}" for stage in sorted(ROUTER_STAGES)]}
 
 
-# ============================================================================
-# CLI Usage
-# ============================================================================
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1 and sys.argv[1] == "list":
-        print("\n=== Available Models ===\n")
-        for provider, models in list_all_models().items():
-            print(f"{provider.upper()}:")
-            for model in models:
-                chars = get_model_characteristics(model)
-                print(f"  - {model} ({chars['cost_tier']} cost, {chars['speed']})")
-            print()
-
-        print("\n=== Aliases ===\n")
-        for alias, target in list_all_aliases().items():
-            provider, api_name = normalize_model_name(alias)
-            print(f"  {alias} → {api_name} ({provider})")
-
-    elif len(sys.argv) > 2 and sys.argv[1] == "info":
-        model = sys.argv[2]
-        try:
-            provider, api_name = normalize_model_name(model)
-            chars = get_model_characteristics(api_name)
-            display = get_model_display_name(api_name)
-
-            print(f"\n=== {display} ===\n")
-            print(f"Provider: {provider}")
-            print(f"API Name: {api_name}")
-            print(f"Speed: {chars['speed']}")
-            print(f"Cost Tier: {chars['cost_tier']}")
-            print(f"Context Window: {chars['context_window']:,} tokens")
-            print(f"Description: {chars['description']}")
-            print()
-        except ValueError as e:
-            print(f"Error: {e}")
-            sys.exit(1)
-
-    else:
-        print("Usage:")
-        print("  python models.py list           # List all models")
-        print("  python models.py info <model>   # Get model info")
+def list_all_aliases() -> dict[str, str]:
+    """Return compatibility aliases for operator visibility."""
+    return dict(LEGACY_ROUTE_ALIASES)

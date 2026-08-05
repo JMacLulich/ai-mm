@@ -95,7 +95,11 @@ def test_generate_plan_output_with_stub_provider(monkeypatch):
                 cached=False,
             )
 
-    monkeypatch.setattr(planning, "normalize_model_name", lambda _model: ("openai", "gpt-5.2"))
+    monkeypatch.setattr(
+        planning,
+        "normalize_model_name",
+        lambda _model: ("llm_router", "stage:planning"),
+    )
     monkeypatch.setattr(planning, "get_provider", lambda _provider: StubProvider())
     monkeypatch.setattr(planning, "get_cached_response", lambda *args, **kwargs: None)
     monkeypatch.setattr(planning, "cache_response", lambda *args, **kwargs: None)

@@ -8,14 +8,14 @@ or editor integrations (Emacs, VS Code, etc.).
 Example usage:
     from api import review, plan, stabilize
 
-    # Single model review
-    result = review("git diff output", model="gpt")
+    # Single routed review
+    result = review("git diff output", model="stage:review")
 
     # Multi-model review
-    results = review("git diff output", models=["gpt", "deepseek-pro"])
+    results = review("git diff output", models=["stage:review", "deepseek"])
 
     # Planning
-    plan_result = plan("Add user authentication", model="gpt-5.2")
+    plan_result = plan("Add user authentication", model="stage:planning")
 
     # Stabilization (multi-round)
     stable_plan = stabilize("Add caching layer", rounds=2)
@@ -33,11 +33,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from claude_mm.cache import cache_response, get_cached_response
 from claude_mm.config import load_config
-from claude_mm.models import (
-    get_model_display_name,
-    get_provider_for_model,
-    normalize_model_name,
-)
+from claude_mm.models import get_model_display_name, normalize_model_name
 from claude_mm.planning import DEFAULT_CONFIDENCE_THRESHOLD, generate_plan_output
 from claude_mm.prompts import get_review_system_prompt
 from claude_mm.providers import get_provider
@@ -50,7 +46,18 @@ VALID_FOCUS_VALUES = frozenset(
     {"general", "review", "verification", "security", "performance", "architecture", "testing"}
 )
 REASONING_EFFORT_VALUES = frozenset(
-    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+    {
+        "none",
+        "minimal",
+        "low",
+        "fast",
+        "medium",
+        "standard",
+        "high",
+        "careful",
+        "xhigh",
+        "max",
+    }
 )
 
 
@@ -120,10 +127,7 @@ class AllModelsFailedError(RuntimeError):
         # (Input values may already be sanitized, but we apply it defensively here too.)
         self.errors = {m: _safe_err(e) for m, e in errors.items()}
         summary = "; ".join(f"{m}: {e}" for m, e in self.errors.items())
-        super().__init__(
-            f"All review models failed. Configure at least one working provider. "
-            f"Errors: {summary}"
-        )
+        super().__init__(f"All routed reviews failed. Check llm-router health. Errors: {summary}")
 
 __all__ = [
     "review",
@@ -165,9 +169,8 @@ class MultiReviewResult:
     Attributes:
         results: Map of model name → ReviewResult for all successful models.
         errors: Map of model name → error string for failed/timed-out models.
-        fallback_models: Set of model names that were added by fallback policy
-            (not explicitly requested by the caller). Useful to distinguish requested
-            vs automatically-selected results.
+        fallback_models: Backward-compatible field that remains empty. Fallbacks are
+            internal llm-router attempts and appear in result provenance.
         total_cost: Sum of costs across all successful results.
     """
 
@@ -202,67 +205,6 @@ class MultiReviewResult:
         )
 
 
-def _is_overload_error(error_message: str) -> bool:
-    """Return True if the error looks like a provider overload (503/529)."""
-    msg = error_message.lower()
-    overload_markers = ["503", "service unavailable", "529", "overloaded"]
-    return any(marker in msg for marker in overload_markers)
-
-
-def _build_fallback_candidates(
-    models: List[str],
-    errors: Dict[str, str],
-) -> List[str]:
-    """
-    Determine which local fallback models to try based on current errors.
-
-    Only called when results is empty (all models failed). Returns an ordered list
-    of fallback candidates to attempt.
-    """
-    local_providers = {"ollama", "lmstudio"}
-    external_failure_count = 0
-
-    for model_name in models:
-        provider_name = get_provider_for_model(model_name)
-        if provider_name not in local_providers and model_name in errors:
-            external_failure_count += 1
-
-    overload_failures = sum(1 for error in errors.values() if _is_overload_error(error))
-
-    # Track providers already represented in the model list to avoid double-trying
-    models_providers = {get_provider_for_model(m) for m in models}
-
-    candidates = []
-    if overload_failures >= 2 and get_provider_for_model("lmstudio") not in models_providers:
-        logger.info(
-            "Detected repeated provider overloads (503/529). "
-            "Falling back to local LM Studio (qwen/qwen3.6-35b-a3b)."
-        )
-        candidates.append("lmstudio")
-
-    if external_failure_count > 0:
-        # "ollama" and "lmstudio" are valid model aliases recognized by normalize_model_name():
-        #   "ollama"   → provider=ollama,   model_id=qwen2.5:14b-instruct
-        #   "lmstudio" → provider=lmstudio, model_id=qwen/qwen3.6-35b-a3b
-        for local_model in ("ollama", "lmstudio"):
-            # Skip if this provider is already in the original model list (already tried)
-            # or if already failed/queued
-            provider = get_provider_for_model(local_model)
-            if (
-                provider not in models_providers
-                and local_model not in errors
-                and local_model not in candidates
-            ):
-                candidates.append(local_model)
-
-        if candidates:
-            logger.info(
-                "External providers failed. Trying local fallback model(s)."
-            )
-
-    return candidates
-
-
 def _resolve_cache_ttl(cache_ttl: Optional[int], config: dict) -> int:
     """Resolve effective cache TTL from caller arg and config, with type coercion."""
     raw = cache_ttl if cache_ttl is not None else config.get("cache_ttl_hours", 24)
@@ -278,17 +220,6 @@ def _resolve_cache_ttl(cache_ttl: Optional[int], config: dict) -> int:
 MAX_PROMPT_CHARS = 1_000_000  # ~250k tokens — guard against accidental huge diffs
 
 
-_LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio"})
-
-
-def _is_local_model(model_name: str) -> bool:
-    """Return True if the model runs on a local provider (ollama or lmstudio)."""
-    try:
-        return get_provider_for_model(model_name) in _LOCAL_PROVIDERS
-    except Exception:
-        return False
-
-
 def _log_profile_selection(alias: str, provider_name: str, model_id: str) -> None:
     """Emit a visible audit line naming the profile/model a review is about to use.
 
@@ -297,7 +228,7 @@ def _log_profile_selection(alias: str, provider_name: str, model_id: str) -> Non
     logger, which the CLI surfaces on stderr.
     """
     logger.info(
-        "🧭 profile → alias=%s provider=%s model=%s (%s)",
+        "🧭 router → selector=%s boundary=%s intent=%s (%s)",
         alias,
         provider_name,
         model_id,
@@ -305,25 +236,20 @@ def _log_profile_selection(alias: str, provider_name: str, model_id: str) -> Non
     )
 
 
-def _audit_served_model(requested_model: str, response: "ProviderResponse") -> None:
-    """Compare the model we asked for against the one the server actually served.
-
-    Local providers (LM Studio) echo the served model id back in the response;
-    we stash it in ``metadata['served_model']``. If it disagrees with the
-    requested id, the profile silently fell back to whatever was loaded — exactly
-    the failure mode this audit exists to catch. WARNING on mismatch, INFO on OK.
-    """
-    served = (response.metadata or {}).get("served_model")
-    if not served:
+def _audit_served_model(requested_route: str, response: "ProviderResponse") -> None:
+    """Log verified router provenance for an intent-resolved response."""
+    metadata = response.metadata or {}
+    if not metadata.get("router_verified"):
+        logger.warning("⚠️  unverified routing response for %s", requested_route)
         return
-    if served != requested_model:
-        logger.warning(
-            "⚠️  profile audit MISMATCH: requested=%s but server served=%s",
-            requested_model,
-            served,
-        )
-    else:
-        logger.info("✅ profile audit OK: served=%s", served)
+    logger.info(
+        "✅ router audit: route=%s profile=%s provider=%s model=%s fallback=%s",
+        requested_route,
+        metadata.get("profile", "unknown"),
+        metadata.get("provider", "unknown"),
+        metadata.get("served_model", response.model),
+        metadata.get("fallback_outcome", "unknown"),
+    )
 
 
 def _validate_review_args(
@@ -402,25 +328,18 @@ def review(
 
     Args:
         prompt: Code or diff to review
-        model: Single model to use (e.g., 'gpt', 'deepseek-pro', 'claude')
-        models: Multiple models to use (for parallel review). Mutually exclusive with model.
+        model: Single router selector (for example ``stage:review`` or ``deepseek``)
+        models: Multiple router selectors to orchestrate in parallel.
         focus: Review focus ('general', 'review', 'security', 'performance', 'architecture',
             'testing', 'verification')
         use_cache: Whether to use cached responses
         cache_ttl: Cache TTL in hours (overrides default; 0 = expire immediately / no cache read)
         on_result: Callback invoked as each model completes (model_name, result, duration_secs).
             Only available in the multi-model sync path.
-        per_model_timeout: Timeout in seconds for remote models (gpt, deepseek, claude, etc.).
-            0.0 or None uses the configured default (review_per_model_timeout_seconds, 60s).
-            Note: underlying HTTP requests may continue after timeout — configure
-            provider-level timeouts for true request cancellation.
-        local_model_timeout: Timeout in seconds specifically for local models (ollama, lmstudio).
-            Overrides per_model_timeout for local providers only.
-            0.0 or None uses the configured default (local_model_timeout_seconds, 120s).
-            Set higher than per_model_timeout since local models may be slower to respond.
-        reasoning_effort: Provider reasoning effort. Supported values include ``xhigh``;
-            it is applied to OpenAI and DeepSeek models in a multi-provider review. DeepSeek
-            maps ``xhigh`` to its API-level ``max`` setting.
+        per_model_timeout: Client deadline for one complete router cascade.
+        local_model_timeout: Deprecated compatibility argument; routing and attempt
+            timeouts are owned by llm-router.
+        reasoning_effort: Provider-neutral quality hint forwarded to llm-router.
 
     Returns:
         ReviewResult for single model, MultiReviewResult for multiple models
@@ -433,7 +352,7 @@ def review(
         >>> result = review("git diff output", model="gpt")
         >>> print(result.text)
 
-        >>> results = review("git diff output", models=["gpt", "deepseek-pro"])
+        >>> results = review("git diff output", models=["stage:review", "deepseek"])
         >>> for model, result in results:
         ...     print(f"{model}: {result.text}")
     """
@@ -455,27 +374,18 @@ def review(
     elif model is not None:
         model_list = [model]
     else:
-        model_list = [str(config.get("default_models", {}).get("review", "gpt-5.4"))]
+        model_list = [str(config.get("default_models", {}).get("review", "stage:review"))]
 
     system_prompt = get_review_system_prompt(focus)
 
     # Resolve remote model timeout
     effective_timeout = per_model_timeout
     if effective_timeout is None:
-        configured_timeout = config.get("review_per_model_timeout_seconds", 60)
+        configured_timeout = config.get("review_per_model_timeout_seconds", 600)
         try:
             effective_timeout = float(configured_timeout)
         except (TypeError, ValueError):
-            effective_timeout = 60.0
-
-    # Resolve local model timeout (ollama, lmstudio get more time by default)
-    effective_local_timeout = local_model_timeout
-    if effective_local_timeout is None:
-        configured_local = config.get("local_model_timeout_seconds", 120)
-        try:
-            effective_local_timeout = float(configured_local)
-        except (TypeError, ValueError):
-            effective_local_timeout = 120.0
+            effective_timeout = 600.0
 
     if len(model_list) == 1:
         if on_result is not None:
@@ -483,10 +393,7 @@ def review(
                 "on_result callback is ignored for single-model reviews; "
                 "use models=[...] for multi-model review"
             )
-        # Use the appropriate timeout based on whether this is a local model
-        applied_timeout = (
-            effective_local_timeout if _is_local_model(model_list[0]) else effective_timeout
-        )
+        applied_timeout = effective_timeout
         if applied_timeout is not None and applied_timeout > 0:
             executor = _get_executor()
             f = executor.submit(
@@ -522,7 +429,6 @@ def review(
         effective_cache_ttl,
         on_result,
         effective_timeout,
-        effective_local_timeout,
         reasoning_effort,
     )
 
@@ -569,14 +475,7 @@ def _review_single(
     provider = get_provider(provider_name)
     provider_kwargs = {}
     if reasoning_effort is not None:
-        if provider_name in {"openai", "deepseek"}:
-            provider_kwargs["reasoning_effort"] = reasoning_effort
-        else:
-            logger.warning(
-                "Ignoring reasoning_effort=%s for model without effort controls: %s",
-                reasoning_effort,
-                model,
-            )
+        provider_kwargs["reasoning_effort"] = reasoning_effort
     response = provider.complete(
         prompt,
         model_id,
@@ -617,26 +516,25 @@ def _review_multi(
     cache_ttl: int,
     on_result: Optional[Callable[[str, "ReviewResult", float], None]] = None,
     per_model_timeout: Optional[float] = None,
-    local_model_timeout: Optional[float] = None,
     reasoning_effort: Optional[str] = None,
 ) -> "MultiReviewResult":
     """
     Internal: Multi-model review using ThreadPoolExecutor with per-model deadlines.
 
-    Local models (ollama, lmstudio) use local_model_timeout; remote models use
-    per_model_timeout. This lets slow local models get more time without delaying
-    the collective result for fast remote models.
-
-    Note: Timeout means we stop *waiting* for that model's result; the underlying
-    HTTP request may continue. Configure provider-level timeouts for true cancellation.
+    Each task has one client deadline for the router's complete cascade. Attempt
+    timeouts and fallback order remain inside llm-router.
     """
     results: Dict[str, ReviewResult] = {}
     errors: Dict[str, str] = {}
 
     def _effective_timeout_for(model_name: str) -> Optional[float]:
-        """Return the timeout to apply for this specific model."""
-        t = local_model_timeout if _is_local_model(model_name) else per_model_timeout
-        return t if (t is not None and t > 0) else None
+        """Return the client deadline for one routed task."""
+        del model_name
+        return (
+            per_model_timeout
+            if per_model_timeout is not None and per_model_timeout > 0
+            else None
+        )
 
     executor = _get_executor()
     # Key by future object directly (not id()) to avoid id-reuse bugs
@@ -662,7 +560,7 @@ def _review_multi(
             start_times[future] = now
             future_to_model[future] = m
 
-        # Per-model deadlines: local models get local_model_timeout, remotes get per_model_timeout
+        # Per-route deadlines bound the complete cascade, not individual providers.
         model_deadline: Dict[str, Optional[float]] = {
             m: ((now + t) if (t := _effective_timeout_for(m)) is not None else None)
             for m in models
@@ -672,11 +570,7 @@ def _review_multi(
         }
 
         if any(v is not None for v in model_timeout_val.values()):
-            local_t = local_model_timeout or 0
-            remote_t = per_model_timeout or 0
-            logger.info(
-                "⏱️  Timeouts — remote: %.0fs, local: %.0fs", remote_t, local_t
-            )
+            logger.info("⏱️  Router task timeout: %.0fs", per_model_timeout or 0)
 
         # Collect results with event-driven waiting (no busy-poll)
         pending = set(future_to_model.keys())
@@ -761,72 +655,10 @@ def _review_multi(
         for future in future_to_model:
             future.cancel()
 
-    # Fallback only triggers when ALL requested models failed — not on partial failure.
-    # Use the latest individual deadline as the budget reference for fallback.
-    latest_deadline = max(
-        (d for d in model_deadline.values() if d is not None), default=None
-    )
-    sync_fallback_models: set = set()
-    if not results:
-        _remaining_now = (latest_deadline - time.perf_counter()) if latest_deadline else None
-        if _remaining_now is not None and _remaining_now <= 0:
-            logger.info("Skipping local fallback: deadline already exhausted")
-            fallback_candidates = []
-        else:
-            try:
-                fallback_candidates = _build_fallback_candidates(models, errors)
-            except Exception as e:
-                logger.warning("Failed to determine fallback candidates: %s", _safe_err(e))
-                fallback_candidates = []
-
-        # Run fallback models via shared executor with remaining-budget timeout.
-        # This enforces the documented collective-deadline semantics during the call itself.
-        for fallback_model in fallback_candidates:
-            # Recompute at each iteration: prior fallback attempts consume time
-            remaining_for_fallback = (
-                (latest_deadline - time.perf_counter()) if latest_deadline is not None else None
-            )
-            if remaining_for_fallback is not None and remaining_for_fallback <= 0:
-                logger.info("Skipping fallback for %s: deadline exhausted", fallback_model)
-                break
-            fallback_start = time.perf_counter()
-            try:
-                fb_future = _get_executor().submit(
-                    _review_single_with_options,
-                    prompt,
-                    fallback_model,
-                    system_prompt,
-                    use_cache,
-                    cache_ttl,
-                    reasoning_effort,
-                )
-                fallback_result = fb_future.result(timeout=remaining_for_fallback)
-                results[fallback_model] = fallback_result
-                sync_fallback_models.add(fallback_model)
-                fallback_duration = time.perf_counter() - fallback_start
-                if on_result:
-                    try:
-                        on_result(fallback_model, fallback_result, fallback_duration)
-                    except Exception as cb_err:
-                        logger.warning(
-                            "on_result callback raised for %s: %s",
-                            fallback_model,
-                            _safe_err(cb_err),
-                        )
-                break
-            except concurrent.futures.TimeoutError:
-                fb_future.cancel()  # Best-effort: won't stop a running thread but signals intent
-                used = f"{remaining_for_fallback:.1f}s" if remaining_for_fallback else "0s"
-                errors[fallback_model] = f"timed out after {used}"
-                logger.warning("Timed out fallback %s after %s", fallback_model, used)
-            except Exception as e:
-                errors[fallback_model] = _safe_err(e)
-                logger.warning("Error reviewing with %s: %s", fallback_model, _safe_err(e))
-
     if not results:
         raise AllModelsFailedError(errors)
 
-    return MultiReviewResult(results, errors=errors, fallback_models=sync_fallback_models)
+    return MultiReviewResult(results, errors=errors)
 
 
 def plan(
@@ -887,7 +719,7 @@ def plan(
     config = load_config()
     effective_cache_ttl = _resolve_cache_ttl(cache_ttl, config)
 
-    selected_model = model or config.get("default_models", {}).get("plan", "gpt-5.2")
+    selected_model = model or config.get("default_models", {}).get("plan", "stage:planning")
     selected_model = str(selected_model)
 
     plan_output = generate_plan_output(
@@ -1021,8 +853,8 @@ async def review_async(
     """
     Async version of review(). See review() for full documentation.
 
-    Includes the same fallback logic as the sync path: if all external providers fail,
-    local models (ollama, lmstudio) are tried automatically.
+    Provider retries and fallbacks are executed by llm-router, exactly as in the
+    synchronous path.
 
     Note: on_result callback is not supported in the async path. To stream results
     as each model completes, call review_async() multiple times concurrently with
@@ -1050,26 +882,18 @@ async def review_async(
     elif model is not None:
         model_list = [model]
     else:
-        model_list = [str(config.get("default_models", {}).get("review", "gpt-5.4"))]
+        model_list = [str(config.get("default_models", {}).get("review", "stage:review"))]
 
     system_prompt = get_review_system_prompt(focus)
 
-    # Resolve remote and local timeouts from params or config
+    # Resolve the client deadline for a complete router cascade.
     effective_timeout = per_model_timeout
     if effective_timeout is None:
-        configured_timeout = config.get("review_per_model_timeout_seconds", 60)
+        configured_timeout = config.get("review_per_model_timeout_seconds", 600)
         try:
             effective_timeout = float(configured_timeout)
         except (TypeError, ValueError):
-            effective_timeout = 60.0
-
-    effective_local_timeout = local_model_timeout
-    if effective_local_timeout is None:
-        configured_local = config.get("local_model_timeout_seconds", 120)
-        try:
-            effective_local_timeout = float(configured_local)
-        except (TypeError, ValueError):
-            effective_local_timeout = 120.0
+            effective_timeout = 600.0
 
     if len(model_list) == 1:
         coro = _review_single_async_with_options(
@@ -1080,10 +904,7 @@ async def review_async(
             effective_cache_ttl,
             reasoning_effort,
         )
-        # Apply the appropriate timeout for this model (local vs remote)
-        applied_timeout = (
-            effective_local_timeout if _is_local_model(model_list[0]) else effective_timeout
-        )
+        applied_timeout = effective_timeout
         if applied_timeout is not None and applied_timeout > 0:
             try:
                 return await asyncio.wait_for(coro, timeout=applied_timeout)
@@ -1095,10 +916,7 @@ async def review_async(
 
     async def run_model(model_name: str):
         start = time.perf_counter()
-        # Use per-model timeout: local models get local_model_timeout, remotes get effective_timeout
-        model_t = (
-            effective_local_timeout if _is_local_model(model_name) else effective_timeout
-        )
+        model_t = effective_timeout
         timeout_for_model = model_t if (model_t is not None and model_t > 0) else 0.0
         try:
             coro = _review_single_async_with_options(
@@ -1143,52 +961,10 @@ async def review_async(
         else:
             errors[model_name] = "unknown error"
 
-    # Async fallback: only triggers when ALL requested models failed (not on partial failure).
-    # Fallback gets the same per-model timeout as the main models (true per-model semantics,
-    # consistent with the documented async behavior).
-    async_fallback_models: set = set()
-
-    if not results:
-        try:
-            async_fallback_candidates = _build_fallback_candidates(model_list, errors)
-        except Exception as e:
-            logger.warning("Failed to determine async fallback candidates: %s", _safe_err(e))
-            async_fallback_candidates = []
-        for fallback_model in async_fallback_candidates:
-            # Fallback models are local — apply local timeout
-            fallback_t = (
-                effective_local_timeout if _is_local_model(fallback_model) else effective_timeout
-            )
-            fallback_t = fallback_t if (fallback_t is not None and fallback_t > 0) else 0.0
-            try:
-                coro = _review_single_async_with_options(
-                    prompt,
-                    fallback_model,
-                    system_prompt,
-                    use_cache,
-                    effective_cache_ttl,
-                    reasoning_effort,
-                )
-                if fallback_t > 0:
-                    fallback_result = await asyncio.wait_for(coro, timeout=fallback_t)
-                else:
-                    fallback_result = await coro
-                results[fallback_model] = fallback_result
-                async_fallback_models.add(fallback_model)
-                break
-            except asyncio.TimeoutError:
-                errors[fallback_model] = f"timed out after {fallback_t:.1f}s"
-                logger.warning(
-                    "Timed out async fallback %s after %.1fs", fallback_model, fallback_t
-                )
-            except Exception as e:
-                errors[fallback_model] = _safe_err(e)
-                logger.warning("Error reviewing with %s: %s", fallback_model, _safe_err(e))
-
     if not results:
         raise AllModelsFailedError(errors)
 
-    return MultiReviewResult(results, errors=errors, fallback_models=async_fallback_models)
+    return MultiReviewResult(results, errors=errors)
 
 
 async def _review_single_async(
@@ -1233,14 +1009,7 @@ async def _review_single_async(
     provider = get_provider(provider_name)
     provider_kwargs = {}
     if reasoning_effort is not None:
-        if provider_name in {"openai", "deepseek"}:
-            provider_kwargs["reasoning_effort"] = reasoning_effort
-        else:
-            logger.warning(
-                "Ignoring reasoning_effort=%s for model without effort controls: %s",
-                reasoning_effort,
-                model,
-            )
+        provider_kwargs["reasoning_effort"] = reasoning_effort
     response = await provider.complete_async(
         prompt,
         model_id,

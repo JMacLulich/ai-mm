@@ -1,55 +1,27 @@
-"""
-LLM Provider abstraction layer.
+"""LLM execution boundary.
 
-This module provides a uniform interface for interacting with different LLM providers
-(OpenAI, DeepSeek, Anthropic, Alibaba, Ollama) with support for sync and async operations.
+``ai-mm`` deliberately exposes one runtime provider: the host-level Rust
+``llm-router`` service. Direct vendor adapters remain implementation history and are
+not selectable through this factory.
 """
 
-from .alibaba import AlibabaProvider
-from .anthropic import AnthropicProvider
 from .base import Provider, ProviderError, ProviderResponse
-from .deepseek import DeepSeekProvider
-from .lmstudio import LMStudioProvider
-from .ollama import OllamaProvider
-from .openai import OpenAIProvider
+from .router import LLMRouterProvider
 
 __all__ = [
     "Provider",
     "ProviderResponse",
     "ProviderError",
-    "AlibabaProvider",
-    "OpenAIProvider",
-    "DeepSeekProvider",
-    "AnthropicProvider",
-    "OllamaProvider",
-    "LMStudioProvider",
+    "LLMRouterProvider",
+    "get_provider",
 ]
 
 
-def get_provider(name: str, **kwargs) -> Provider:
-    """
-    Factory function to get a provider instance.
-
-    Args:
-        name: Provider name ('openai', 'deepseek', 'anthropic', 'alibaba', 'ollama')
-        **kwargs: Provider-specific configuration
-
-    Returns:
-        Provider instance
-
-    Raises:
-        ValueError: If provider name is unknown
-    """
-    providers = {
-        "openai": OpenAIProvider,
-        "deepseek": DeepSeekProvider,
-        "alibaba": AlibabaProvider,
-        "anthropic": AnthropicProvider,
-        "ollama": OllamaProvider,
-        "lmstudio": LMStudioProvider,
-    }
-
-    if name not in providers:
-        raise ValueError(f"Unknown provider: {name}. Available: {list(providers.keys())}")
-
-    return providers[name](**kwargs)
+def get_provider(name: str = "llm_router", **kwargs) -> Provider:
+    """Build the single approved provider client."""
+    normalized = name.replace("-", "_").lower()
+    if normalized not in {"llm_router", "router"}:
+        raise ValueError(
+            f"Direct provider '{name}' is disabled; ai-mm routes all LLM calls via llm-router"
+        )
+    return LLMRouterProvider(**kwargs)

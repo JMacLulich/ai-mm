@@ -1,4 +1,4 @@
-"""Schema-constrained DeepSeek assistance for rig planning and recovery.
+"""Schema-constrained routed assistance for rig planning and recovery.
 
 The model receives a bounded JSON packet and can only return proposals. It has
 no repository, shell, mailbox, controller, Docker, or git authority.
@@ -29,8 +29,7 @@ RECOVERY_ACTIONS = {
     "CLEAN_PROVEN_ORPHAN_STACK",
     "ESCALATE_CONTROLLER_BUG",
 }
-ALLOWED_MODELS = {"qwen36-local", "deepseek", "deepseek-pro", "deepseek-pro-xhigh"}
-LOCAL_QWEN_MODEL = "qwen/qwen3.6-35b-a3b"
+ALLOWED_MODELS = {"local", "deepseek"}
 ESCALATION_CONFIDENCE = 0.72
 
 
@@ -38,8 +37,8 @@ class RigAssistError(ValueError):
     """Raised when a rig-assist packet or model response violates the contract."""
 
 
-def _lmstudio_response_format(mode: str) -> dict[str, Any]:
-    """Return LM Studio's supported JSON-schema response contract."""
+def _response_format(mode: str) -> dict[str, Any]:
+    """Return the domain-owned JSON-schema response contract."""
     if mode == "recovery":
         schema: dict[str, Any] = {
             "type": "object",
@@ -348,16 +347,11 @@ def validate_recovery_response(response: Any) -> dict[str, Any]:
     }
 
 
-def assist(packet: dict[str, Any], *, mode: str, model: str = "qwen36-local") -> dict[str, Any]:
+def assist(packet: dict[str, Any], *, mode: str, model: str = "local") -> dict[str, Any]:
     packet = validate_packet(packet, mode)
     if model not in ALLOWED_MODELS:
         raise RigAssistError(f"rig assistance model must be one of {sorted(ALLOWED_MODELS)}")
-    requested_model = "deepseek-pro" if model == "deepseek-pro-xhigh" else model
-    provider_name, api_model = normalize_model_name(requested_model)
-    if provider_name not in {"lmstudio", "deepseek"} or (
-        provider_name == "lmstudio" and api_model != LOCAL_QWEN_MODEL
-    ):
-        raise RigAssistError("rig assistance is restricted to local Qwen 3.6 or DeepSeek")
+    provider_name, api_model = normalize_model_name(model)
     provider = get_provider(provider_name)
     if mode == "plan":
         system_prompt = (
@@ -386,18 +380,10 @@ def assist(packet: dict[str, Any], *, mode: str, model: str = "qwen36-local") ->
         "model": api_model,
         "system_prompt": system_prompt,
         "max_tokens": 12_000,
-        "response_format": (
-            _lmstudio_response_format(mode)
-            if provider_name == "lmstudio"
-            else {"type": "json_object"}
-        ),
+        "response_format": _response_format(mode),
+        "metadata": {"operation": f"rig-assist-{mode}", "stage": "planning"},
     }
-    if provider_name == "deepseek":
-        request_options["reasoning_effort"] = (
-            "xhigh" if model == "deepseek-pro-xhigh" else "high"
-        )
-    else:
-        request_options["temperature"] = 0.1
+    request_options["temperature"] = 0.1
     response = provider.complete(
         **request_options,
     )
@@ -414,9 +400,12 @@ def assist(packet: dict[str, Any], *, mode: str, model: str = "qwen36-local") ->
         if mode == "plan"
         else validate_recovery_response(parsed)
     )
+    metadata = response.metadata or {}
     result["assistant"] = {
-        "provider": provider_name,
-        "model": api_model,
+        "provider": metadata.get("provider", provider_name),
+        "profile": metadata.get("profile"),
+        "route": api_model,
+        "model": response.model,
         "cost": float(response.cost or 0),
     }
     return result

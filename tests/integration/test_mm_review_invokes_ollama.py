@@ -1,195 +1,95 @@
-"""Integration tests for multimode review provider invocation."""
+"""Integration tests for multi-seat orchestration through one router boundary."""
 
-import logging
-import sys
-import time
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from claude_mm import api
 from claude_mm.models import MODEL_GROUPS
 from claude_mm.providers.base import ProviderResponse
 
 
-def test_mm_review_invokes_ollama_and_reports_error(monkeypatch, caplog):
-    """Multimode reviews invoke local model and log Ollama errors when unavailable."""
-    called_models = []
-
-    class StubProvider:
-        def complete(self, prompt, model, system_prompt=None):
-            called_models.append(model)
-            if model == "qwen2.5:14b-instruct":
-                raise Exception("Ollama server not running. Start with: ollama serve")
-
-            return ProviderResponse(
-                text=f"ok from {model}",
-                model=model,
-                input_tokens=1,
-                output_tokens=1,
-                cost=Decimal("0"),
-            )
-
-    monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
-    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
-
-    with caplog.at_level(logging.WARNING, logger="claude_mm.api"):
-        result = api.review(
-            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-            models=["gpt-5.4", "deepseek", "claude-opus-4-6", "ollama"],
-            focus="architecture",
-            use_cache=False,
-        )
-
-    assert "qwen2.5:14b-instruct" in called_models
-    assert "Error reviewing with ollama:" in caplog.text
-    assert "ollama" not in result.results
-    assert len(result.results) == 3
-
-
-def test_mm_review_raises_when_all_models_fail(monkeypatch):
-    """Multimode reviews fail fast when every configured model errors out."""
-
-    class AlwaysFailProvider:
-        def complete(self, prompt, model, system_prompt=None):
-            raise Exception(f"{model} unavailable")
-
-    monkeypatch.setattr(api, "get_provider", lambda _provider_name: AlwaysFailProvider())
-    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
-
-    with pytest.raises(RuntimeError, match="All review models failed"):
-        api.review(
-            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-            models=MODEL_GROUPS["mm"],
-            focus="architecture",
-            use_cache=False,
-        )
-
-
-def test_mm_review_falls_back_to_lmstudio_after_two_overload_errors(monkeypatch, caplog):
-    """When ALL external models fail with 503/529 overloads, fallback to LM Studio runs."""
-
-    class StubProvider:
-        def complete(self, prompt, model, system_prompt=None):
-            # All external models fail with overload
-            if model in {"gpt-5.4", "deepseek-v4-pro", "claude-opus-4-6"}:
-                raise Exception("503 Service Unavailable")
-
-            if model == "lmstudio" or model == "qwen/qwen3.6-35b-a3b":
-                return ProviderResponse(
-                    text="ok from lmstudio",
-                    model="qwen/qwen3.6-35b-a3b",
-                    input_tokens=1,
-                    output_tokens=1,
-                    cost=Decimal("0"),
-                )
-
-            return ProviderResponse(
-                text=f"ok from {model}",
-                model=model,
-                input_tokens=1,
-                output_tokens=1,
-                cost=Decimal("0"),
-            )
-
-    monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
-    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
-
-    with caplog.at_level(logging.INFO, logger="claude_mm.api"):
-        result = api.review(
-            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-            models=["gpt-5.4", "deepseek", "claude-opus-4-6"],
-            focus="architecture",
-            use_cache=False,
-        )
-
-    assert "Detected repeated provider overloads (503/529)" in caplog.text
-    assert "lmstudio" in result.results
-    assert "lmstudio" in result.fallback_models
-
-
-def test_mm_review_uses_local_fallback_when_external_models_fail(monkeypatch, caplog):
-    """When external providers fail and no local succeeds, local fallback is attempted."""
-
-    class StubProvider:
-        def complete(self, prompt, model, system_prompt=None):
-            if model in {
-                "gpt-5.4",
-                "deepseek-v4-pro",
-                "claude-opus-4-6",
-                "qwen2.5:14b-instruct",
-            }:
-                raise Exception(f"{model} unavailable")
-
-            if model == "qwen/qwen3.6-35b-a3b":
-                return ProviderResponse(
-                    text="ok from lmstudio",
-                    model="qwen/qwen3.6-35b-a3b",
-                    input_tokens=1,
-                    output_tokens=1,
-                    cost=Decimal("0"),
-                )
-
-            return ProviderResponse(
-                text=f"ok from {model}",
-                model=model,
-                input_tokens=1,
-                output_tokens=1,
-                cost=Decimal("0"),
-            )
-
-    monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
-    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
-
-    with caplog.at_level(logging.INFO, logger="claude_mm.api"):
-        result = api.review(
-            prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-            models=["gpt-5.4", "deepseek", "claude-opus-4-6", "ollama"],
-            focus="architecture",
-            use_cache=False,
-        )
-
-    assert "External providers failed. Trying local fallback model(s)." in caplog.text
-    assert "lmstudio" in result.results
-
-
-def test_mm_review_aggregates_results_when_one_model_times_out(monkeypatch):
-    """Timed-out model should not block successful model results."""
-
-    class StubProvider:
-        def complete(self, prompt, model, system_prompt=None):
-            if model == "gpt-5.4":
-                time.sleep(0.2)
-                return ProviderResponse(
-                    text="late gpt result",
-                    model=model,
-                    input_tokens=1,
-                    output_tokens=1,
-                    cost=Decimal("0"),
-                )
-
-            return ProviderResponse(
-                text=f"ok from {model}",
-                model=model,
-                input_tokens=1,
-                output_tokens=1,
-                cost=Decimal("0"),
-            )
-
-    monkeypatch.setattr(api, "get_provider", lambda _provider_name: StubProvider())
-    monkeypatch.setattr(api, "log_api_call", lambda **_kwargs: None)
-
-    result = api.review(
-        prompt="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py",
-        models=["gpt-5.4", "deepseek"],
-        focus="architecture",
-        use_cache=False,
-        per_model_timeout=0.05,
+def _routed_response(route: str) -> ProviderResponse:
+    return ProviderResponse(
+        text=f"review from {route}",
+        model="served-model",
+        input_tokens=10,
+        output_tokens=5,
+        cost=Decimal("0"),
+        metadata={
+            "router_verified": True,
+            "profile": "standard",
+            "provider": "router-provider",
+            "served_model": "served-model",
+            "fallback_outcome": "served",
+        },
     )
 
-    assert "deepseek" in result.results
-    assert "gpt-5.4" not in result.results
-    assert result.errors["gpt-5.4"].startswith("timed out after")
+
+def test_mm_group_invokes_semantic_router_seats(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = []
+
+    class StubRouter:
+        def complete(self, prompt, model, system_prompt=None, **kwargs):
+            called.append(model)
+            return _routed_response(model)
+
+    monkeypatch.setattr(api, "get_provider", lambda provider: StubRouter())
+    monkeypatch.setattr(api, "log_api_call", lambda **kwargs: None)
+    result = api.review(
+        "diff --git a/test",
+        models=MODEL_GROUPS["mm"],
+        use_cache=False,
+        per_model_timeout=0,
+    )
+    assert set(called) == set(MODEL_GROUPS["mm"])
+    assert set(result.results) == set(MODEL_GROUPS["mm"])
+
+
+def test_partial_router_failure_does_not_add_ai_mm_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = []
+
+    class StubRouter:
+        def complete(self, prompt, model, system_prompt=None, **kwargs):
+            called.append(model)
+            if model == "stage:audit":
+                raise RuntimeError("router cascade exhausted")
+            return _routed_response(model)
+
+    monkeypatch.setattr(api, "get_provider", lambda provider: StubRouter())
+    monkeypatch.setattr(api, "log_api_call", lambda **kwargs: None)
+    result = api.review(
+        "diff --git a/test",
+        models=["stage:review", "stage:audit"],
+        use_cache=False,
+        per_model_timeout=0,
+    )
+    assert called == ["stage:review", "stage:audit"] or called == [
+        "stage:audit",
+        "stage:review",
+    ]
+    assert result.fallback_models == set()
+    assert result.errors == {"stage:audit": "router cascade exhausted"}
+
+
+def test_all_router_failures_raise_without_local_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    class FailedRouter:
+        def complete(self, prompt, model, system_prompt=None, **kwargs):
+            calls.append(model)
+            raise RuntimeError("unavailable")
+
+    monkeypatch.setattr(api, "get_provider", lambda provider: FailedRouter())
+    with pytest.raises(api.AllModelsFailedError, match="llm-router health"):
+        api.review(
+            "diff --git a/test",
+            models=["stage:review", "stage:audit"],
+            use_cache=False,
+            per_model_timeout=0,
+        )
+    assert sorted(calls) == ["stage:audit", "stage:review"]

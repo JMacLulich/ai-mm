@@ -1,8 +1,7 @@
 """
-Interactive TUI for managing provider configuration.
+Interactive TUI for managing the llm-router connection.
 
-Provides a nice interface similar to occtl's session manager for configuring
-API keys and local endpoint settings for different AI providers.
+Provider credentials and model policy are configured in llm-router itself.
 """
 
 from __future__ import annotations
@@ -18,12 +17,12 @@ from claude_mm.config import CONFIG_FILE, load_user_config, save_user_config
 from claude_mm.env import CONFIG_DIR, ENV_FILE, load_env_file, save_env_file
 
 PROVIDERS = [
-    ("openai", "OPENAI_API_KEY", "GPT-5.4 (reviews)", "sk-"),
-    ("deepseek", "DEEPSEEK_API_KEY", "DeepSeek V4 Pro (max-thinking reviews)", None),
-    ("anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6 (reviews)", "sk-ant-"),
-    ("alibaba", "DASHSCOPE_API_KEY", "Alibaba Cloud DashScope (Qwen 3.6 cloud)", None),
-    ("ollama", "OLLAMA_BASE_URL", "Local LLM endpoint URL", "http(s)://..."),
-    ("lmstudio", "LMSTUDIO_BASE_URL", "LM Studio OpenAI-compatible endpoint", "http(s)://..."),
+    (
+        "llm-router",
+        "LLM_ROUTER_BASE_URL",
+        "Rust routing service endpoint",
+        "http(s)://...",
+    ),
 ]
 
 SETTINGS = [
@@ -31,7 +30,7 @@ SETTINGS = [
         "review timeout",
         "review_per_model_timeout_seconds",
         "Per-model timeout for multi-model reviews",
-        "60",
+        "600",
     ),
 ]
 
@@ -39,84 +38,21 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def _test_api_key(provider: str, value: str) -> tuple[bool, str]:
-    """Test a provider configuration value by making a minimal API call.
+    """Test the router endpoint without making an LLM call.
 
     Returns:
         Tuple of (success, message)
     """
     try:
-        if provider == "openai":
-            from openai import OpenAI
+        if provider != "llm-router":
+            return False, "Unknown provider"
+        from claude_mm.providers.router import LLMRouterProvider
 
-            client = OpenAI(api_key=value)
-            client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=5,
-            )
-            return True, "Valid"
-
-        elif provider == "deepseek":
-            from claude_mm.providers.deepseek import DeepSeekProvider
-
-            DeepSeekProvider(api_key=value).complete(
-                prompt="Reply with OK",
-                model="deepseek-v4-flash",
-                max_tokens=5,
-                reasoning_effort="none",
-            )
-            return True, "Valid"
-
-        elif provider == "anthropic":
-            from anthropic import Anthropic
-
-            client = Anthropic(api_key=value)
-            client.messages.create(
-                model="claude-opus-4-6",
-                max_tokens=5,
-                messages=[{"role": "user", "content": "Hi"}],
-            )
-            return True, "Valid"
-
-        elif provider == "alibaba":
-            from openai import OpenAI
-
-            from claude_mm.providers.alibaba import DEFAULT_DASHSCOPE_BASE_URL
-
-            base_url = os.getenv("DASHSCOPE_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
-            client = OpenAI(api_key=value, base_url=base_url, timeout=20.0)
-            client.chat.completions.create(
-                model="qwen3.6-35b-a3b",
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=5,
-            )
-            return True, "Valid"
-
-        elif provider == "ollama":
-            import urllib.request
-
-            if not value:
-                return False, "OLLAMA_BASE_URL not configured"
-            base_url = value.rstrip("/")
-            req = urllib.request.Request(f"{base_url}/api/tags", method="GET")
-            with urllib.request.urlopen(req, timeout=2) as resp:
-                if resp.status == 200:
-                    return True, "Running"
-            return False, "Ollama not running"
-
-        elif provider == "lmstudio":
-            import urllib.request
-
-            if not value:
-                return False, "LMSTUDIO_BASE_URL not configured"
-            base_url = value.rstrip("/")
-            req = urllib.request.Request(f"{base_url}/models", method="GET")
-            with urllib.request.urlopen(req, timeout=2) as resp:
-                if resp.status == 200:
-                    return True, "Running"
-            return False, "LM Studio not running"
-
-        return False, "Unknown provider"
+        payload = LLMRouterProvider(base_url=value).health_check()
+        available = sum(
+            1 for entry in payload.get("entries", []) if entry.get("status") == "up"
+        )
+        return True, f"Running ({available} attempts available)"
     except Exception as e:
         return False, str(e)
 
@@ -239,11 +175,8 @@ def _prompt_for_value(
     print(_menu_row(f" Service: {description} ", inner))
     if current_value:
         print(_menu_row(f" Current value: {current_value} ", inner))
-    if field_key == "OLLAMA_BASE_URL" and not current_value and not suggested_value:
-        suggested_value = "http://localhost:11434"
-        print(_menu_row(f" Suggested value: {suggested_value} ", inner))
-    elif field_key == "LMSTUDIO_BASE_URL" and not current_value and not suggested_value:
-        suggested_value = "http://127.0.0.1:1234/v1"
+    if field_key == "LLM_ROUTER_BASE_URL" and not current_value and not suggested_value:
+        suggested_value = "http://127.0.0.1:4000/v1"
         print(_menu_row(f" Suggested value: {suggested_value} ", inner))
     elif suggested_value and not current_value:
         print(_menu_row(f" Suggested value: {suggested_value} ", inner))
@@ -260,8 +193,7 @@ def _prompt_for_value(
 
     key_input: list[str] = []
     obscure_input = field_key not in {
-        "OLLAMA_BASE_URL",
-        "LMSTUDIO_BASE_URL",
+        "LLM_ROUTER_BASE_URL",
         "review_per_model_timeout_seconds",
     }
 
@@ -295,7 +227,7 @@ def _prompt_for_value(
     if key_input:
         return "".join(key_input)
     if (
-        field_key in {"OLLAMA_BASE_URL", "LMSTUDIO_BASE_URL", "review_per_model_timeout_seconds"}
+        field_key in {"LLM_ROUTER_BASE_URL", "review_per_model_timeout_seconds"}
         and suggested_value
     ):
         return suggested_value
@@ -310,7 +242,7 @@ def _build_menu_rows(
     settings = settings or {}
     test_results = test_results or {}
     rows = []
-    local_providers = {"ollama", "lmstudio"}
+    local_providers = {"llm-router"}
     for provider, env_key, description, prefix in PROVIDERS:
         is_local = provider in local_providers
         has_key = bool(env_key and env_key in keys and keys[env_key])

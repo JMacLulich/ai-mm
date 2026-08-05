@@ -13,11 +13,11 @@ CONFIG_FILE = CONFIG_DIR / "config.yaml"
 # Default configuration
 DEFAULT_CONFIG = {
     "default_models": {
-        "plan": "gpt-5.2",  # GPT-5.2 Thinking (for complex planning)
-        "review": "gpt-5.4",  # GPT-5.4 for deeper, more rigorous reviews
+        "plan": "stage:planning",
+        "review": "stage:review",
     },
-    "review_per_model_timeout_seconds": 60,
-    "local_model_timeout_seconds": 240,  # longer timeout for local models (ollama, lmstudio)
+    # Leave enough client-side time for llm-router to run its bounded cascade.
+    "review_per_model_timeout_seconds": 600,
     "cost_warning_threshold": 0.10,
     "cache_ttl_hours": 24,
     "planning": {

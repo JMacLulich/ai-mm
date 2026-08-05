@@ -1,65 +1,62 @@
-"""Regression tests for the complete removal of the Gemini provider surface."""
+"""Architecture tests that keep routing decisions out of feature code."""
 
-import importlib
 from pathlib import Path
 
 import pytest
 
 from claude_mm.config_tui import PROVIDERS
-from claude_mm.cost_tracker import PRICING
-from claude_mm.models import (
-    get_provider_for_model,
-    list_all_aliases,
-    list_all_models,
-    normalize_model_name,
-)
-from claude_mm.pricing import DEFAULT_PRICING
 from claude_mm.providers import get_provider
 
 
 @pytest.mark.parametrize(
-    "model",
-    [
-        "gemini",
-        "gemini-pro",
-        "gemini-flash",
-        "gemini-3.1-pro-preview",
-        "gemini-3-flash-preview",
-    ],
+    "provider",
+    ["openai", "deepseek", "anthropic", "alibaba", "ollama", "lmstudio", "google"],
 )
-def test_removed_gemini_models_are_rejected(model):
-    assert get_provider_for_model(model) is None
-    with pytest.raises(ValueError, match="Unknown model"):
-        normalize_model_name(model)
+def test_direct_provider_factory_access_is_disabled(provider: str) -> None:
+    with pytest.raises(ValueError, match="routes all LLM calls via llm-router"):
+        get_provider(provider)
 
 
-def test_removed_google_provider_is_not_importable_or_registered():
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("claude_mm.providers.google")
-
-    with pytest.raises(ValueError, match="Unknown provider"):
-        get_provider("google")
-
-
-def test_removed_provider_is_absent_from_config_and_pricing():
-    provider_names = {provider[0] for provider in PROVIDERS}
-    config_names = {provider[1] for provider in PROVIDERS}
-
-    assert "google" not in provider_names
-    assert "GOOGLE_AI_API_KEY" not in config_names
-    assert "google" not in DEFAULT_PRICING
-    assert "google" not in list_all_models()
-    assert all("gemini" not in model for model in PRICING)
-    assert all("gemini" not in alias for alias in list_all_aliases())
-
-
-def test_cli_install_and_dependency_metadata_have_no_gemini_surface():
+def test_runtime_hot_paths_have_no_vendor_client_or_api_model_selection() -> None:
     root = Path(__file__).parents[2]
-    exposed_files = [root / "bin" / "ai", root / "commands" / "install" / "run"]
+    paths = [
+        root / "bin" / "ai",
+        root / "src" / "claude_mm" / "api.py",
+        root / "src" / "claude_mm" / "planning.py",
+        root / "src" / "claude_mm" / "rig_assist.py",
+        root / "src" / "claude_mm" / "config.py",
+        root / "src" / "claude_mm" / "config_tui.py",
+    ]
+    forbidden = [
+        "OpenAIProvider",
+        "DeepSeekProvider",
+        "AnthropicProvider",
+        "AlibabaProvider",
+        "OllamaProvider",
+        "LMStudioProvider",
+    ]
+    for path in paths:
+        contents = path.read_text()
+        for token in forbidden:
+            assert token not in contents, f"{token} leaked into {path}"
+        for provider in ("OPENAI", "DEEPSEEK", "ANTHROPIC"):
+            assert f"{provider}_API_KEY" not in contents
+        for local_runtime in ("OLLAMA", "LMSTUDIO"):
+            assert f"{local_runtime}_BASE_URL" not in contents
 
-    for path in exposed_files:
-        contents = path.read_text().lower()
-        assert "gemini" not in contents
-        assert "google_ai_api_key" not in contents
 
-    assert "google-genai" not in (root / "pyproject.toml").read_text().lower()
+def test_config_surface_contains_only_router_connection() -> None:
+    assert PROVIDERS == [
+        (
+            "llm-router",
+            "LLM_ROUTER_BASE_URL",
+            "Rust routing service endpoint",
+            "http(s)://...",
+        )
+    ]
+
+
+def test_dependency_metadata_has_no_direct_vendor_sdk() -> None:
+    root = Path(__file__).parents[2]
+    metadata = (root / "pyproject.toml").read_text().lower()
+    assert '"anthropic' not in metadata
