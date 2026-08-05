@@ -42,6 +42,7 @@ LEGACY_ROUTE_ALIASES = {
     # audit stage; retry, fallback, and future model changes remain router-owned.
     "deepseek": "stage:audit",
     "local": "profile:local_only",
+    "lmstudio": "profile:local_only",
     "kimi": "profile:kimi",
     "commercial": "profile:commercial_compliant",
 }

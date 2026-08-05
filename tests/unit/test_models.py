@@ -27,6 +27,10 @@ def test_deepseek_is_a_provider_level_selector_for_router_owned_flash_profile() 
     assert normalize_model_name("deepseek") == (ROUTER_PROVIDER, "stage:audit")
 
 
+def test_lmstudio_is_a_compatibility_alias_for_router_owned_local_profile() -> None:
+    assert normalize_model_name("lmstudio") == (ROUTER_PROVIDER, "profile:local_only")
+
+
 def test_direct_api_model_names_are_rejected() -> None:
     with pytest.raises(ValueError, match="Unknown LLM route"):
         normalize_model_name("vendor/model-id")
@@ -60,4 +64,5 @@ def test_operator_lists_have_no_api_model_ids() -> None:
     aliases = list_all_aliases()
     assert set(models) == {ROUTER_PROVIDER}
     assert "deepseek" in aliases
+    assert aliases["lmstudio"] == "profile:local_only"
     assert all(route.startswith(("stage:", "profile:")) for route in aliases.values())

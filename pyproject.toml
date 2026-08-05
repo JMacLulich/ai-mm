@@ -1,6 +1,6 @@
 [project]
 name = "ai-mm"
-version = "0.8.0"
+version = "0.8.1"
 description = "Multi-seat AI code review and planning through the Rust llm-router service"
 requires-python = ">=3.11"
 dependencies = [
