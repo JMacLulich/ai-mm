@@ -74,6 +74,24 @@ def plan_response() -> dict:
     }
 
 
+def test_plan_response_schema_and_validator_reject_noncanonical_rig_names() -> None:
+    from claude_mm.rig_assist import _response_schema
+
+    eligible_items = _response_schema("plan")["properties"]["units"]["items"]["properties"][
+        "eligible_rigs"
+    ]["items"]
+    assert eligible_items == {
+        "type": "string",
+        "enum": ["Rig A", "Rig B", "Rig C"],
+    }
+
+    response = plan_response()
+    response["units"][0]["eligible_rigs"] = ["rig-a"]
+
+    with pytest.raises(RigAssistError, match=r"eligible_rigs.*Rig A.*Rig B.*Rig C"):
+        validate_plan_response(response, plan_packet())
+
+
 def test_plan_assist_is_schema_constrained_and_uses_deepseek_route(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

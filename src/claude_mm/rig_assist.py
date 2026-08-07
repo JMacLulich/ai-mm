@@ -18,6 +18,7 @@ MAX_PACKET_BYTES = 160_000
 MAX_UNITS = 6
 MAX_FILES_PER_UNIT = 40
 MAX_COMMANDS_PER_UNIT = 12
+ELIGIBLE_RIGS = ("Rig A", "Rig B", "Rig C")
 PLAN_DECISIONS = {"PROPOSE", "NO_WORK", "BLOCKED"}
 RECOVERY_DECISIONS = {"ADVISE", "NO_ACTION", "BLOCKED"}
 RECOVERY_ACTIONS = {
@@ -95,7 +96,10 @@ def _response_schema(mode: str) -> dict[str, Any]:
                 "id": {"type": "string"},
                 "files": {"type": "array", "items": {"type": "string"}},
                 "depends_on": {"type": "array", "items": {"type": "string"}},
-                "eligible_rigs": {"type": "array", "items": {"type": "string"}},
+                "eligible_rigs": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(ELIGIBLE_RIGS)},
+                },
                 "verify": {"type": "array", "items": {"type": "string"}},
                 "acceptance": {"type": "array", "items": {"type": "string"}},
                 "prompt": {"type": "string"},
@@ -351,6 +355,18 @@ def validate_plan_response(response: Any, packet: dict[str, Any]) -> dict[str, A
                 raw.get("files"), f"units[{index}].files", maximum=MAX_FILES_PER_UNIT
             )
         ]
+        eligible_rigs = _strings(
+            raw.get("eligible_rigs", []),
+            f"units[{index}].eligible_rigs",
+            maximum=6,
+            allow_empty=True,
+        )
+        invalid_rigs = sorted(set(eligible_rigs).difference(ELIGIBLE_RIGS))
+        if invalid_rigs:
+            raise RigAssistError(
+                f"units[{index}].eligible_rigs must contain only {list(ELIGIBLE_RIGS)}; "
+                f"got {invalid_rigs}"
+            )
         units.append(
             {
                 "id": unit_id,
@@ -363,12 +379,7 @@ def validate_plan_response(response: Any, packet: dict[str, Any]) -> dict[str, A
                     maximum=20,
                     allow_empty=True,
                 ),
-                "eligible_rigs": _strings(
-                    raw.get("eligible_rigs", []),
-                    f"units[{index}].eligible_rigs",
-                    maximum=6,
-                    allow_empty=True,
-                ),
+                "eligible_rigs": eligible_rigs,
                 "verify": _strings(
                     raw.get("verify"),
                     f"units[{index}].verify",
