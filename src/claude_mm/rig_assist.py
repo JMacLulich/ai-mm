@@ -11,7 +11,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from claude_mm.models import normalize_model_name
-from claude_mm.providers import get_provider
+from claude_mm.providers import ProviderError, get_provider
 from claude_mm.usage import log_api_call
 
 MAX_PACKET_BYTES = 160_000
@@ -32,13 +32,27 @@ RECOVERY_ACTIONS = {
 ALLOWED_MODELS = {"local", "deepseek"}
 ESCALATION_CONFIDENCE = 0.72
 
+# Response-format degradation ladder.
+#
+# Neither allowed route serves OpenAI strict `json_schema`: the DeepSeek cascade
+# rejects it with HTTP 400, and the LM Studio local route answers 200 with empty
+# content (all budget spent on stripped reasoning), which surfaces as
+# "llm-router returned empty response content". `json_object` is the inverse --
+# served by DeepSeek, rejected 400 by LM Studio. The schema is therefore carried
+# in the system prompt and enforced by validate_plan_response /
+# validate_recovery_response, and the wire-level hint degrades per route.
+RESPONSE_FORMAT_LADDER: tuple[dict[str, Any] | None, ...] = (
+    {"type": "json_object"},
+    None,
+)
+
 
 class RigAssistError(ValueError):
     """Raised when a rig-assist packet or model response violates the contract."""
 
 
-def _response_format(mode: str) -> dict[str, Any]:
-    """Return the domain-owned JSON-schema response contract."""
+def _response_schema(mode: str) -> dict[str, Any]:
+    """Return the domain-owned JSON schema for a mode's response contract."""
     if mode == "recovery":
         schema: dict[str, Any] = {
             "type": "object",
@@ -119,12 +133,21 @@ def _response_format(mode: str) -> dict[str, Any]:
                 "units": {"type": "array", "items": unit_schema},
             },
         }
+    return schema
+
+
+def _response_format(mode: str) -> dict[str, Any]:
+    """Return the strict json_schema wrapper around the mode's response contract.
+
+    Kept as the canonical description of the contract. It is NOT sent on the
+    wire -- see RESPONSE_FORMAT_LADDER for why.
+    """
     return {
         "type": "json_schema",
         "json_schema": {
             "name": f"rig_assist_{mode}",
             "strict": True,
-            "schema": schema,
+            "schema": _response_schema(mode),
         },
     }
 
@@ -194,6 +217,62 @@ def validate_packet(packet: Any, mode: str) -> dict[str, Any]:
     return packet
 
 
+def _closing_brace(payload: str, start: int) -> int | None:
+    """Return the index closing the object opened at ``start``, or None.
+
+    Brace counting is string-literal aware so a brace inside a quoted value
+    cannot close the object early.
+    """
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(payload)):
+        char = payload[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _embedded_json_objects(payload: str) -> list[dict[str, Any]]:
+    """Return every top-level JSON object embedded in prose, in order.
+
+    Needed because the unconstrained rung of RESPONSE_FORMAT_LADDER lets a model
+    wrap its answer in commentary. Nested objects are skipped -- once an object
+    parses, scanning resumes after its closing brace.
+    """
+    found: list[dict[str, Any]] = []
+    cursor = 0
+    while True:
+        start = payload.find("{", cursor)
+        if start == -1:
+            return found
+        end = _closing_brace(payload, start)
+        if end is None:
+            return found
+        try:
+            value = json.loads(payload[start : end + 1])
+        except json.JSONDecodeError:
+            cursor = start + 1
+            continue
+        if isinstance(value, dict):
+            found.append(value)
+        cursor = end + 1
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     payload = text.strip()
     if payload.startswith("```"):
@@ -202,6 +281,15 @@ def _extract_json(text: str) -> dict[str, Any]:
     try:
         value = json.loads(payload)
     except json.JSONDecodeError as exc:
+        embedded = _embedded_json_objects(payload)
+        if len(embedded) == 1:
+            return embedded[0]
+        if len(embedded) > 1:
+            # Two candidate answers is ambiguous, not recoverable. Fail closed
+            # rather than silently picking one and discarding the rest.
+            raise RigAssistError(
+                f"model response contains {len(embedded)} top-level JSON objects"
+            ) from exc
         raise RigAssistError(f"model response is not valid JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise RigAssistError("model response must be a JSON object")
@@ -347,6 +435,31 @@ def validate_recovery_response(response: Any) -> dict[str, Any]:
     }
 
 
+def _complete_with_format_ladder(provider: Any, request_options: dict[str, Any]) -> Any:
+    """Complete the request, degrading the response-format hint per route.
+
+    Routes disagree about which OpenAI response_format values they serve, and a
+    rejection is indistinguishable from an outage at the call site. Each rung is
+    attempted in order; the first provider error is re-raised (with the rungs
+    tried appended) only if every rung fails, so a genuine outage still surfaces.
+    """
+    failures: list[tuple[str, ProviderError]] = []
+    for response_format in RESPONSE_FORMAT_LADDER:
+        rung = "none" if response_format is None else str(response_format.get("type"))
+        options = dict(request_options)
+        if response_format is not None:
+            options["response_format"] = response_format
+        try:
+            return provider.complete(**options)
+        except ProviderError as exc:
+            failures.append((rung, exc))
+    # Every rung failed. Report all of them -- the last rung is unconstrained, so
+    # its error is the one that describes the route's real health, but a caller
+    # deciding whether to retry needs to see each rung's distinct cause.
+    detail = "; ".join(f"{rung}: {error}" for rung, error in failures)
+    raise ProviderError(f"all response_format rungs failed ({detail})") from failures[-1][1]
+
+
 def assist(packet: dict[str, Any], *, mode: str, model: str = "local") -> dict[str, Any]:
     packet = validate_packet(packet, mode)
     if model not in ALLOWED_MODELS:
@@ -375,18 +488,20 @@ def assist(packet: dict[str, Any], *, mode: str, model: str = "local") -> dict[s
             + ". Prefer WAIT_ACTIVE when bounded work is genuinely running; never infer a "
             "stall from silence alone. Also include confidence as a number from 0 to 1."
         )
+    system_prompt += (
+        " Respond with a single JSON object and nothing else -- no prose, no markdown"
+        " fence. It must validate against this JSON schema: "
+        + json.dumps(_response_schema(mode), separators=(",", ":"))
+    )
     request_options: dict[str, Any] = {
         "prompt": json.dumps(packet, separators=(",", ":")),
         "model": api_model,
         "system_prompt": system_prompt,
         "max_tokens": 12_000,
-        "response_format": _response_format(mode),
         "metadata": {"operation": f"rig-assist-{mode}", "stage": "planning"},
+        "temperature": 0.1,
     }
-    request_options["temperature"] = 0.1
-    response = provider.complete(
-        **request_options,
-    )
+    response = _complete_with_format_ladder(provider, request_options)
     log_api_call(
         model=api_model,
         input_tokens=int(response.input_tokens or 0),
