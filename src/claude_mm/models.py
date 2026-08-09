@@ -38,9 +38,9 @@ MODEL_GROUPS = {
 
 # Stable convenience selectors name a policy boundary, not an API model.
 LEGACY_ROUTE_ALIASES = {
-    # Stable provider-level selector. The router currently selects Flash for the
-    # audit stage; retry, fallback, and future model changes remain router-owned.
-    "deepseek": "stage:audit",
+    # Stable planning selector. The router-owned profile tries direct DeepSeek
+    # V4 Flash first and local Qwen only when that remote attempt is unavailable.
+    "deepseek": "profile:rig_planning",
     "local": "profile:local_only",
     "lmstudio": "profile:local_only",
     "kimi": "profile:kimi",

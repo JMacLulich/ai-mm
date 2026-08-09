@@ -75,7 +75,8 @@ router selector, not an API model ID. Supported forms are:
 
 - `stage:<intent>` — let the router resolve the stage;
 - `profile:<name>` — explicitly request a router-owned profile;
-- `deepseek` — stable provider-level review selector routed as `stage:audit`;
+- `deepseek` — stable rig-planning selector routed to DeepSeek V4 Flash with
+  local Qwen as the router-owned availability fallback;
 - `local`, `kimi`, and `commercial` — convenience profile selectors;
 - `mm`, `all`, `fast`, `local`, and `max` — orchestration groups.
 

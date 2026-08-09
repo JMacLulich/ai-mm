@@ -23,8 +23,11 @@ def test_explicit_stage_and_profile_pass_through() -> None:
     assert normalize_model_name("profile:kimi") == (ROUTER_PROVIDER, "profile:kimi")
 
 
-def test_deepseek_is_a_provider_level_selector_for_router_owned_flash_profile() -> None:
-    assert normalize_model_name("deepseek") == (ROUTER_PROVIDER, "stage:audit")
+def test_deepseek_selects_router_owned_rig_planning_cascade() -> None:
+    assert normalize_model_name("deepseek") == (
+        ROUTER_PROVIDER,
+        "profile:rig_planning",
+    )
 
 
 def test_lmstudio_is_a_compatibility_alias_for_router_owned_local_profile() -> None:
