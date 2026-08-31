@@ -73,27 +73,34 @@ Use `AskUserQuestion`:
 
 ### Step 4: Run Multi-Model Review
 
-For the normal broad pass, execute the mm review:
+For the normal review pass, run one fail-closed DeepSeek V4 Flash review after
+all edits are complete:
 
 ```bash
-git diff | ai review --model mm --focus {chosen_focus}
+git diff | ai review --model deepseek --focus {chosen_focus} --per-model-timeout 180
 ```
 
-For a local-only review, use the semantic local selector. Do not hard-code LM
-Studio, Ollama, an endpoint URL, or a local model ID:
+Do not run `mm`, `all`, or an iterative review loop unless the operator explicitly
+requests multiple seats or rounds.
+
+For an operator-requested offline/local-only review, use the semantic local
+selector. Local review is opt-in, never an automatic fallback or merge
+prerequisite. Do not hard-code LM Studio, Ollama, an endpoint URL, or a local
+model ID, and never disable the timeout with `--per-model-timeout 0`:
 
 ```bash
 git diff | ai review --model local --focus {chosen_focus}
 ```
 
-For an evidence-first DeepSeek verification pass, use the stable provider route:
+For an evidence-first DeepSeek verification pass, use the same stable route:
 
 ```bash
 git diff | ai review --model deepseek --focus verification
 ```
 
-`llm-router` currently selects Flash for this route and owns its retry/fallback
-policy. Do not replace the provider selector with an API model ID.
+`deepseek` resolves to router-owned `stage:audit`, whose canonical default is
+`profile:deepseek_v4_flash_direct`. It fails closed and does not fall back to
+local Qwen. Do not replace the selector with an API model ID.
 
 The output shows each semantic council seat alongside router provenance.
 
@@ -335,16 +342,16 @@ Would you like help implementing any of these test improvements?
 This skill integrates with the separate `ai-mm` repository:
 - Repository: https://github.com/JMacLulich/ai-mm
 - Installation: `cd ~/dev/ai-mm && ./run install`
-- Command: `ai review --model mm`
+- Normal command: `ai review --model deepseek --focus verification`
 
 ## Cost and Routing Information
 
 - `ai-mm` has no pricing table or provider cascade.
 - Inspect actual routing and spend with `llm-router stats`.
-- `ai review --model deepseek --focus verification` uses the stable DeepSeek
-  route; the router currently selects Flash.
+- `ai review --model deepseek --focus verification` uses `stage:audit`, which
+  resolves to the fail-closed `profile:deepseek_v4_flash_direct` route.
 - `ai review --model stage:review` requests the normal review stage.
-- `ai review --model local` requests the router-owned local-only profile.
+- `ai review --model local` requests the opt-in router-owned local-only profile.
 - `ai review --model all` runs all semantic council seats in parallel.
 
 ## Troubleshooting
