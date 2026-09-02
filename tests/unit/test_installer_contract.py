@@ -2,6 +2,10 @@
 
 from pathlib import Path
 
+import pytest
+
+from claude_mm.install_verify import InstallVerificationError, validate_managed_install
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -22,6 +26,51 @@ def test_installer_refreshes_claude_and_shared_agent_skills() -> None:
     assert "shopt -s nullglob dotglob" in installer
     assert '[[ "${entries[0]}" == "$skill_target/SKILL.md" ]]' in installer
     assert '[[ -f "${entries[0]}" && ! -L "${entries[0]}" ]]' in installer
+
+
+def test_installer_copies_package_into_managed_venv() -> None:
+    installer = (ROOT / "commands" / "install" / "run").read_text(encoding="utf-8")
+
+    assert 'package_source="${ROOT}[dev]"' in installer
+    assert '[[ ! -f "$AI_MM_INSTALL_ARTIFACT" ]]' in installer
+    assert "AI_MM_INSTALL_ARTIFACT does not exist" in installer
+    assert 'pip" install -q --upgrade --force-reinstall "$package_source"' in installer
+    assert 'pip" install -q --upgrade -e ' not in installer
+    assert 'python3" -m claude_mm.install_verify' in installer
+
+
+def test_install_verification_accepts_self_contained_noneditable_package(tmp_path: Path) -> None:
+    venv = tmp_path / "venv"
+    module = venv / "lib" / "python" / "site-packages" / "claude_mm" / "__init__.py"
+
+    validate_managed_install(
+        module_path=module,
+        venv_path=venv,
+        direct_url='{"dir_info": {"editable": false}}',
+    )
+
+
+@pytest.mark.parametrize(
+    ("module_suffix", "direct_url", "error"),
+    [
+        ("outside/claude_mm/__init__.py", None, "outside its managed venv"),
+        (
+            "venv/lib/claude_mm/__init__.py",
+            '{"dir_info": {"editable": true}}',
+            "still installed in editable mode",
+        ),
+        ("venv/lib/claude_mm/__init__.py", "{", "direct_url.json is malformed"),
+    ],
+)
+def test_install_verification_rejects_source_links_and_bad_metadata(
+    tmp_path: Path, module_suffix: str, direct_url: str | None, error: str
+) -> None:
+    with pytest.raises(InstallVerificationError, match=error):
+        validate_managed_install(
+            module_path=tmp_path / module_suffix,
+            venv_path=tmp_path / "venv",
+            direct_url=direct_url,
+        )
 
 
 def _review_skills() -> list[str]:
