@@ -97,8 +97,8 @@ def test_plan_assist_is_schema_constrained_and_uses_deepseek_route(
 ) -> None:
     class StubProvider:
         def complete(self, **kwargs):
-            assert kwargs["model"] == "profile:rig_planning"
-            # Strict json_schema is rejected HTTP 400 by the DeepSeek cascade, so
+            assert kwargs["model"] == "stage:audit"
+            # Strict json_schema is rejected HTTP 400 by DeepSeek Flash, so
             # the first wire hint must be json_object.
             assert kwargs["response_format"] == {"type": "json_object"}
             assert kwargs["temperature"] == 0.1
@@ -110,7 +110,7 @@ def test_plan_assist_is_schema_constrained_and_uses_deepseek_route(
                 output_tokens=100,
                 metadata={
                     "provider": "deepseek",
-                    "profile": "rig_planning",
+                    "profile": "deepseek_v4_flash_direct",
                 },
             )
 

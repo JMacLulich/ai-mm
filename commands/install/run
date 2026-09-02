@@ -62,19 +62,39 @@ main() {
 
     # Create venv at ~/.local/venvs/ai
     local venv_dir="$HOME/.local/venvs/ai"
+    local package_requirement package_source
+    if [[ -n "${AI_MM_INSTALL_ARTIFACT:-}" ]]; then
+        if [[ ! -f "$AI_MM_INSTALL_ARTIFACT" ]]; then
+            echo "Error: AI_MM_INSTALL_ARTIFACT does not exist: $AI_MM_INSTALL_ARTIFACT" >&2
+            exit 1
+        fi
+        package_source="$AI_MM_INSTALL_ARTIFACT"
+        package_requirement="${AI_MM_INSTALL_ARTIFACT}[dev]"
+    else
+        package_source="$ROOT"
+        package_requirement="${ROOT}[dev]"
+    fi
 
     if [[ ! -d "$venv_dir" ]]; then
         echo "🐍 Creating Python virtual environment..."
         python3 -m venv "$venv_dir"
     fi
 
-    # Install dependencies
+    # Install a self-contained package copy. Editable installs leave the global
+    # command dependent on the lifetime of the checkout that ran this script;
+    # deleting a temporary worktree then makes every `ai` invocation fail.
     echo "📚 Installing dependencies..."
     "$venv_dir/bin/pip" install -q --upgrade pip
-    "$venv_dir/bin/pip" install -q --upgrade -e "$ROOT"
-    "$venv_dir/bin/pip" install -q --upgrade -e "$ROOT[dev]"
-    # Dependency removals are not pruned by an editable pip upgrade.
+    # Resolve base + dev dependencies without churning every installed package,
+    # then force-replace only ai-mm so a same-version editable install cannot
+    # survive. A prebuilt artifact may be supplied for reproducible installation.
+    "$venv_dir/bin/pip" install -q --upgrade "$package_requirement"
+    "$venv_dir/bin/pip" install -q --force-reinstall --no-deps "$package_source"
+    # Dependency removals are not pruned by a pip upgrade.
     "$venv_dir/bin/pip" uninstall -q -y anthropic google-genai >/dev/null 2>&1 || true
+
+    # set -e makes this a fail-closed postcondition for the installed package.
+    "$venv_dir/bin/python3" -m claude_mm.install_verify
 
     # Copy ai script to ~/.local/bin with venv shebang
     echo "🔧 Installing ai command..."

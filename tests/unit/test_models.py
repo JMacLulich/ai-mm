@@ -23,15 +23,13 @@ def test_explicit_stage_and_profile_pass_through() -> None:
     assert normalize_model_name("profile:kimi") == (ROUTER_PROVIDER, "profile:kimi")
 
 
-def test_deepseek_selects_router_owned_rig_planning_cascade() -> None:
-    assert normalize_model_name("deepseek") == (
-        ROUTER_PROVIDER,
-        "profile:rig_planning",
-    )
+def test_deepseek_is_a_router_owned_audit_selector() -> None:
+    assert normalize_model_name("deepseek") == (ROUTER_PROVIDER, "stage:audit")
 
 
-def test_lmstudio_is_a_compatibility_alias_for_router_owned_local_profile() -> None:
-    assert normalize_model_name("lmstudio") == (ROUTER_PROVIDER, "profile:local_only")
+def test_lmstudio_legacy_alias_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown LLM route"):
+        normalize_model_name("lmstudio")
 
 
 def test_direct_api_model_names_are_rejected() -> None:
@@ -67,5 +65,5 @@ def test_operator_lists_have_no_api_model_ids() -> None:
     aliases = list_all_aliases()
     assert set(models) == {ROUTER_PROVIDER}
     assert "deepseek" in aliases
-    assert aliases["lmstudio"] == "profile:local_only"
+    assert "lmstudio" not in aliases
     assert all(route.startswith(("stage:", "profile:")) for route in aliases.values())

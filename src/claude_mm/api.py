@@ -217,7 +217,12 @@ def _resolve_cache_ttl(cache_ttl: Optional[int], config: dict) -> int:
     return value
 
 
-MAX_PROMPT_CHARS = 1_000_000  # ~250k tokens — guard against accidental huge diffs
+# Keep review inputs below the smallest supported route context while leaving
+# room for the review system prompt and the model's response. This is a
+# preflight guard: sending an oversized diff to the router only produces a
+# deterministic provider error and may trigger a long client retry/backoff.
+MAX_PROMPT_CHARS = 450_000  # conservative ~112.5k-token estimate
+PROMPT_CHARS_PER_TOKEN = 4
 
 
 def _log_profile_selection(alias: str, provider_name: str, model_id: str) -> None:
@@ -265,8 +270,13 @@ def _validate_review_args(
     if not prompt or not prompt.strip():
         raise ValueError("prompt must not be empty")
     if len(prompt) > MAX_PROMPT_CHARS:
+        estimated_tokens = (len(prompt) + PROMPT_CHARS_PER_TOKEN - 1) // PROMPT_CHARS_PER_TOKEN
         raise ValueError(
-            f"prompt is too large ({len(prompt):,} chars). Maximum is {MAX_PROMPT_CHARS:,}."
+            f"prompt is too large ({len(prompt):,} chars; approximately "
+            f"{estimated_tokens:,} tokens). Maximum is {MAX_PROMPT_CHARS:,} chars "
+            f"(approximately {MAX_PROMPT_CHARS // PROMPT_CHARS_PER_TOKEN:,} tokens). "
+            "Review the diff in smaller file-sized chunks or let OpenCode compact "
+            "its conversation before retrying."
         )
     if model is not None and models is not None:
         raise ValueError("Pass either 'model' or 'models', not both")

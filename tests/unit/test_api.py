@@ -97,3 +97,10 @@ def test_review_rejects_direct_api_model_selector() -> None:
             use_cache=False,
             per_model_timeout=0,
         )
+
+
+def test_review_rejects_oversized_prompt_before_provider_call() -> None:
+    prompt = "x" * (api.MAX_PROMPT_CHARS + 1)
+
+    with pytest.raises(ValueError, match="prompt is too large.*Review the diff"):
+        api.review(prompt, model="stage:review", per_model_timeout=0)

@@ -57,13 +57,13 @@ This installs the `ai` command and its Python environment under `~/.local/`.
 # Router-owned normal review
 git diff | ai review --model stage:review
 
-# Stable DeepSeek provider selector; llm-router currently chooses Flash
+# Normal single review: fail-closed DeepSeek V4 Flash profile
 git diff | ai review --model deepseek --focus verification
 
 # Parallel semantic council seats; each seat is independently routed
 git diff | ai review --model mm --focus review
 
-# Router-owned local-only policy
+# Explicit opt-in/offline local review; never an automatic fallback
 git diff | ai review --model local
 
 # Explicit router profile
@@ -75,8 +75,8 @@ router selector, not an API model ID. Supported forms are:
 
 - `stage:<intent>` — let the router resolve the stage;
 - `profile:<name>` — explicitly request a router-owned profile;
-- `deepseek` — stable rig-planning selector routed to DeepSeek V4 Flash with
-  local Qwen as the router-owned availability fallback;
+- `deepseek` — stable `stage:audit` selector; `llm-router` currently resolves it
+  to fail-closed `profile:deepseek_v4_flash_direct`;
 - `local`, `kimi`, and `commercial` — convenience profile selectors;
 - `mm`, `all`, `fast`, `local`, and `max` — orchestration groups.
 
@@ -94,6 +94,14 @@ Exact API model names are rejected.
 
 The group controls parallel review seats only. It never names providers or fallback
 models; the router remains authoritative for each seat.
+
+Normal review is one `deepseek` seat after all edits are complete. Use `mm`, `all`,
+or an iterative loop only when the operator explicitly requests extra review. Local
+review is opt-in/offline tooling and must not be inserted into the critical path.
+
+The historical `lmstudio` alias has been removed intentionally because stale
+automation used it to put unbounded local Qwen reviews on the critical path. Use
+`local` explicitly when an operator requests an offline review.
 
 ### Focus
 
